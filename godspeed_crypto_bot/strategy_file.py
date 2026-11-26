@@ -670,6 +670,36 @@ def rebalance_due(spec: Spec, books: Books, day: date) -> bool:
     return True
 
 
+def beyond_limits(history, book, spec: Spec) -> bool:
+    """Whether the book, at each coin's last valid close, holds a coin above max_per_coin or all coins above
+    gross_exposure by more than the drift (prices moved it there): then it trades whatever the day."""
+    if book.equity <= 0:
+        return any(book.q.values())
+    cap, gross = min(spec.max_per_coin, MAX_PER_COIN), min(spec.gross_exposure, MAX_GROSS)
+    d = len(history.dates) - 1
+    total = 0.0
+    for coin, q in book.q.items():
+        if not q or coin not in history.index:
+            continue
+        i = history.index[coin]
+        seen = np.flatnonzero(np.isfinite(history.perp_close[: d + 1, i]))
+        if not len(seen):
+            continue
+        w = abs(q * float(history.perp_close[seen[-1], i]) / book.equity)
+        if w > cap + LIMIT_DRIFT:
+            return True
+        total += w
+    return total > gross + LIMIT_DRIFT * len(spec.coins)
+
+
+def trades_on(history, books: Books, spec: Spec, day: date) -> bool:
+    """Whether the decision for ``day`` trades: its rebalance days, the first day, the day the strategy or its file
+    changed, and any day its book has grown past its limits."""
+    if rebalance_due(spec, books, day):
+        return True
+    return beyond_limits(history, books.trend, spec)
+
+
 def fresh_books(equity, start_day, setting, spec: Spec | None = None) -> Books:
     """Fresh virtual books for the configured strategy: a file strategy owns the whole equity in the trend book."""
     if spec is None:
@@ -841,7 +871,7 @@ def decide(history, books: Books, spec: Spec, equity: float | None = None, day: 
     elif day.toordinal() != expected:
         raise ValueError(f"a decision for {day} needs history through {date.fromordinal(day.toordinal() - 1)}, "
                          f"got {history.last_day}")
-    due = rebalance_due(spec, books, day)
+    due = trades_on(history, books, spec, day)
     b = books.copy()
     if b.strategy != spec.book_id:
         b.trend.equity, b.carry.equity = b.equity, 0.0

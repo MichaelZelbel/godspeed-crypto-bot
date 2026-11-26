@@ -23,7 +23,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from . import godspeed, outbox, page, records, safety, strategy_file
 from .data import DataNotReady, build_history, day_ms
-from .execution import Executor, Leg, Plan, plan_orders
+from .execution import Executor, Leg, plan_orders
 from .keys import LiveNotAllowed, live_problems, load_agent_key
 from .ledger import Shadow, ShadowState
 from .names import DISPLAY_NAME
@@ -371,8 +371,9 @@ def _daily(cfg, venue, store, notifier, now, day, run_id, row, market_snapshot):
         decision = decide(history, shadow.s.books, equity=equity, config=config_for(cfg.strategy))
         trades_today = True
     else:
-        # A weekly or monthly file strategy decides and trades only on its days; the account is left as it is between.
-        trades_today = strategy_file.rebalance_due(spec, shadow.s.books, day)
+        # A weekly or monthly file strategy decides on its days (and on any day its book has grown past its limits);
+        # between them the account only follows its targets down (a lower cap, less money), never up.
+        trades_today = strategy_file.trades_on(history, shadow.s.books, spec, day)
         decision = strategy_file.decide(history, shadow.s.books, spec, equity=equity, day=day)
     decision_doc = decision.to_dict()
     decision_doc["warnings"] = snap.warnings
@@ -386,11 +387,11 @@ def _daily(cfg, venue, store, notifier, now, day, run_id, row, market_snapshot):
     acct = venue.account()
     targets, notes = safety.restrict_targets(decision.account_targets(), acct, insts, peg, bool(block), gaps)
     mids = venue.market.mids()
-    if trades_today:
-        plan = plan_orders(targets, acct, insts, mids, cfg, coins_of(insts))
-    else:
-        plan = Plan([], [], [])
-        notes = [*notes, f"not a {spec.rebalance} trading day for {spec.name}: nothing traded"]
+    if not trades_today:
+        targets = _reductions_only(targets, acct, insts)
+        notes = [*notes, f"not a {spec.rebalance} trading day for {spec.name}: positions only reduced where its "
+                         "targets shrank"]
+    plan = plan_orders(targets, acct, insts, mids, cfg, coins_of(insts))
     ex = Executor(cfg, venue, store, day, run_id)
     for coin, market, size, mid, reason in plan.skipped:
         store.add_order(run_id, day, "rebalance", coin, market, "buy" if size > 0 else "sell", abs(size), mid,
@@ -452,6 +453,19 @@ def _daily(cfg, venue, store, notifier, now, day, run_id, row, market_snapshot):
     store.update_run(run_id, status=summary["status"], finished_at=time.time(), summary=summary,
                      error=ex.agent_failure)
     return summary
+
+
+def _reductions_only(targets, acct, insts):
+    """Targets that only ever make a position smaller: a perpetual moves toward its target only when that is a
+    reduction on the same side (or closing it); everything else, spot included, stays as the account holds it."""
+    out = {}
+    for coin in coins_of(insts):
+        perp_t, _spot_t = targets.get(coin, (0.0, 0.0))
+        si = insts.get((coin, "spot"))
+        held = acct.perp_size(coin)
+        shrinks = held and (perp_t == 0 or (perp_t > 0) == (held > 0)) and abs(perp_t) < abs(held)
+        out[coin] = (perp_t if shrinks else held, acct.spot_size(si.token) if si else 0.0)
+    return out
 
 
 def _mid_by_coin(venue, market):

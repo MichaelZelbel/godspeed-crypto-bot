@@ -29,7 +29,9 @@ Every file has these settings at the top:
 - `coins`: 1 to 10 of Hyperliquid's perpetual contracts, written as Hyperliquid writes them, like
   `["BTC", "ETH"]`. They must be listed on Hyperliquid when the file is checked.
 - `rebalance`: how often it trades. `"daily"` (every day), `"weekly"` (every Monday) or `"monthly"` (the first day
-  of each month). In between it leaves the positions as they are. It also trades on the first day it runs.
+  of each month). In between it only ever makes a position smaller: when the money it may use shrank, or when prices
+  pushed the positions past `max_per_coin` or `gross_exposure` (then it trades back to its targets). It also trades on
+  the first day it runs.
 - `direction`: `"long-short"` (bets on rises and on falls), `"long-only"` (only bets on rises; where the signal says
   falling it holds nothing) or `"short-only"` (only bets on falls).
 - `no_trade_band` (optional, 0.02 if left out): a share of the money from 0 to 0.5. While a coin's position is within

@@ -662,6 +662,43 @@ def test_a_weekly_file_leaves_the_account_alone_between_its_days(cfg, tmp_path, 
     assert any("not a weekly trading day for momo" in n for n in out["restrictions"])
 
 
+def test_between_its_days_a_weekly_file_only_ever_reduces(cfg, tmp_path, paper_store, notifier):
+    own(cfg, tmp_path, file_with('kind = "momentum"\nlookbacks = [20, 60]', coins='["BTC"]', rebalance="weekly")
+        .replace('name = "t"', 'name = "momo"'))
+    venue = SimulatedVenue(DogeMarket(), paper_store, "book", start_usdc=2000.0, now=lambda: NOW.timestamp())
+    bot.run_daily(cfg, venue, paper_store, notifier, now=at(TODAY))  # Tuesday: the first day trades
+    held = venue.account().perp_size("BTC")
+    day2 = TODAY + timedelta(days=1)
+    v2 = SimulatedVenue(DogeMarket(today=day2), paper_store, "book", start_usdc=2000.0, now=lambda: at(day2).timestamp())
+    v2.st["perp_cash"] += 2000.0  # twice the money, and a cap that allows it: still no buying until Monday
+    v2._save()
+    cfg.capital_cap_usdc = 4000.0
+    bot.run_daily(cfg, v2, paper_store, notifier, now=at(day2))
+    assert v2.account().perp_size("BTC") == held
+    day3 = TODAY + timedelta(days=2)
+    v3 = SimulatedVenue(DogeMarket(today=day3), paper_store, "book", start_usdc=2000.0, now=lambda: at(day3).timestamp())
+    cfg.capital_cap_usdc = 1000.0  # the person lowered the most it may use: the position shrinks at once
+    out = bot.run_daily(cfg, v3, paper_store, notifier, now=at(day3))
+    assert out["status"] == "complete" and len(out["orders"]) == 1 and out["orders"][0]["side"] == "sell"
+    assert 0 < v3.account().perp_size("BTC") < held * 0.6
+
+
+def test_a_book_past_its_limits_trades_on_any_day():
+    h = small_history()
+    tuesday = h.through(h.last_day - timedelta(days=6))  # the decision for Tuesday 14 July
+    spec = spec_of(file_with('kind = "fixed"\nweights = { BTC = 0.5, ETH = 0.5, SOL = 0 }', rebalance="weekly",
+                             sizing="gross_exposure = 1.0\nmax_per_coin = 0.5", band=0.5))
+    px = {c: tuesday.perp_close[-1, tuesday.index[c]] for c in ("BTC", "ETH")}
+
+    def held(w):
+        return Books(TrendBookState(3000.0, {c: w * 3000.0 / px[c] for c in px}), CarryBookState(0.0),
+                     date(2026, 1, 1), spec.book_id)
+
+    assert strategy_file.decide(tuesday, held(0.5), spec).trend_orders == {}  # within its limits: Monday waits
+    orders = strategy_file.decide(tuesday, held(0.9), spec).trend_orders  # 180% against 100%: back to its targets
+    assert {c: q * px[c] / 3000.0 for c, q in orders.items()} == pytest.approx({"BTC": 0.5, "ETH": 0.5})
+
+
 def test_a_broken_file_stops_the_daily_run_with_its_sentence(cfg, tmp_path, monkeypatch, capsys):
     own(cfg, tmp_path, BASE.replace('name = "base"', 'name = "momo"').replace('"daily"', '"hourly"'))
     p = tmp_path / "c.toml"
