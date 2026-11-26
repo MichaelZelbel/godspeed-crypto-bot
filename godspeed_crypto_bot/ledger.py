@@ -1,12 +1,12 @@
 """The shadow ledger: the two virtual books run forward under the backtest's own assumptions.
 
-This is what the lab's backtest would have produced on the days the bot runs: orders fill at the daily
-open with the lab's fees and slippage tiers, positions are marked at each daily close, and perp funding is
+This is what the research's backtest would have produced on the days the bot runs: orders fill at the daily
+open with the research's fees and slippage tiers, positions are marked at each daily close, and perp funding is
 the day's funding rate times the close. The account (live or paper) is compared against it; that
 comparison is the point of the experiment (README, "What is measured").
 
 Operation order follows the research engine's account and book execution; tests/test_parity.py replays the
-whole hold-out through this ledger and requires the lab's recorded daily equity to the cent.
+whole hold-out through this ledger and requires the research's recorded daily equity to the cent.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from .strategy import Books, Decision, with_balance_prices
 
 PERP_FEE = 4.5e-4
 SPOT_FEE = 7e-4
-# The lab's slippage by monthly volume rank: BTC and ETH were ranks 1-2 (2 bps) and SOL rank 3-4 (8 bps) in
+# The research's slippage by monthly volume rank: BTC and ETH were ranks 1-2 (2 bps) and SOL rank 3-4 (8 bps) in
 # every hold-out month, so the live model fixes those tiers.
 MODEL_SLIPPAGE = {"BTC": 2e-4, "ETH": 2e-4, "SOL": 8e-4}
 DEFAULT_SLIPPAGE = 15e-4
@@ -70,7 +70,7 @@ class Shadow:
         self.slippage = slippage or (lambda coin: MODEL_SLIPPAGE.get(coin, DEFAULT_SLIPPAGE))
         self.perp_fee, self.spot_fee = perp_fee, spot_fee
 
-    # The lab's Account.mark_to / trade / fund, on a book: equity lives on the book state.
+    # The research's Account.mark_to / trade / fund, on a book: equity lives on the book state.
 
     def _book(self, name):
         return self.s.books.trend if name == "trend" else self.s.books.carry
@@ -148,7 +148,7 @@ class Shadow:
         self.s.last_settled = str(day)
 
     def execute(self, decision: Decision, perp_open, spot_open, slippage=None):
-        """Fill the decision's orders at the day's open, as the lab does, and adopt its books.
+        """Fill the decision's orders at the day's open, as the research did, and adopt its books.
 
         Returns the balance prices set for rebalanced carry coins (the perp fill price).
         """
@@ -175,7 +175,7 @@ class Shadow:
         books = with_balance_prices(new, balance)
         books.trend.equity = old.trend.equity
         books.carry.equity = old.carry.equity
-        # Positions closed to zero lose their mark, as the lab's Account deletes a zero position.
+        # Positions closed to zero lose their mark, as the research's Account deletes a zero position.
         for name in ("trend", "carry"):
             live = set()
             if name == "trend":

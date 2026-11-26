@@ -52,6 +52,14 @@ def test_the_licence_holder_and_the_public_repository_address_are_allowed(tree):
     assert run(tree) == (0, "")
 
 
+def test_the_websites_public_repository_address_is_allowed_but_no_other_repository(tree):
+    (tree / "map.json").write_text(f"written in the website repository ({FIRST}{LAST}/godspeedmissioncontrol)\n")
+    assert run(tree) == (0, "")
+    (tree / "other.md").write_text(f"see {FIRST}{LAST}/some-private-notes\n")
+    code, out = run(tree)
+    assert code == 1 and "other.md" in out and "map.json" not in out
+
+
 def test_burn_addresses_are_allowed(tree):
     (tree / "notes.md").write_text(f"{BURN} and 0x{'0' * 40}\n")
     assert run(tree) == (0, "")

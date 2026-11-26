@@ -165,6 +165,8 @@ def main(argv=None):
     p.add_argument("--cap", type=float, help="the most the bot may use, in USDC (live has no default)")
     p.add_argument("--strategy", choices=("mix", "trend", "carry"))
     p.add_argument("--network", dest="set_network", choices=config.NETWORKS)
+    p.add_argument("--agent-approved-on", dest="approved_on", metavar="YYYY-MM-DD",
+                   help="the day you approved the bot's API wallet on Hyperliquid (it expires 180 days later)")
     p = sub.add_parser("eligibility", help="root: record the answer to the country question")
     p.add_argument("--restricted", choices=("yes", "no"), required=True,
                    help="yes if you live in the US or Ontario, or are a resident or citizen of a sanctioned country")
@@ -206,7 +208,8 @@ def main(argv=None):
         if args.command == "configure":
             path = config.config_path(args.config)
             for key, value in (("master_address", args.master), ("capital_cap_usdc", args.cap),
-                               ("strategy", args.strategy), ("network", args.set_network)):
+                               ("strategy", args.strategy), ("network", args.set_network),
+                               ("agent_approved_on", args.approved_on)):
                 if value is not None:
                     configure.set_value(path, key, value)
             cfg = config.load(path)

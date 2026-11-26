@@ -98,6 +98,8 @@ echo "== a fresh install"
 out="$(bash "$INSTALL" --godspeed "$GS" --restricted no --source "$SRC" 2>&1)"; code=$?
 printf '%s\n' "$out" | tail -n 6
 [ "$code" -eq 0 ] && pass "install finished" || fail "install failed (exit $code)"
+check "the installer printed sentences only, no data block" bash -c '! printf "%s" "$1" | grep -q "[{}]"' _ "$out"
+check "the data it left out is in the install log" grep -q '"ready": true' "$ETC/install.log"
 check "program, user and command are there" test -x "$CODE/.venv/bin/python" -a -x "/usr/local/sbin/$NAME"
 id "$NAME" >/dev/null 2>&1 && pass "system user exists" || fail "system user missing"
 for k in daily guard deadline report terms relay; do
@@ -148,6 +150,7 @@ sed -i "s/^mode = .*/  mode = 'live'/" "$ETC/config.toml"
 runs_before="$(sqlite3 "$STATE/bot.sqlite" 'select count(*) from runs' 2>/dev/null || echo na)"
 out="$(bash "$INSTALL" --godspeed "$GS" --source "$SRC" 2>&1)"; code=$?
 [ "$code" -ne 0 ] && printf '%s' "$out" | grep -q "preflight" && pass "a live-looking update stops at its own check (no key here)" || fail "live-looking update: exit $code: $(printf '%s' "$out" | tail -n 2)"
+check "its refusal lists the problems as sentences, not data" bash -c '! printf "%s" "$1" | grep -q "[{}]" && printf "%s" "$1" | grep -q "^  - "' _ "$out"
 runs_after="$(sqlite3 "$STATE/bot.sqlite" 'select count(*) from runs' 2>/dev/null || echo na)"
 [ "$runs_before" = "$runs_after" ] && pass "and no run was made" || fail "a run was made during a live-looking update"
 cp "$WORK/config.paper" "$ETC/config.toml"

@@ -64,3 +64,55 @@ def test_no_lab_in_the_commands_help(capsys):
         cli.main(["--help"])
     text = capsys.readouterr().out
     assert cli.__doc__.splitlines()[0] in text and not LAB.search(text)
+
+
+CODE_NAME = re.compile(r"\bS[0-9]-(?:MAJ|HL(?:-[0-9]x)?)\b")
+
+
+def test_no_research_code_names_in_what_a_person_reads():
+    """The books are told by what they do (trend, carry), never by the research's code names."""
+    found = []
+    for path in [ROOT / "AGENTS.md", *documents()]:
+        for n, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+            if CODE_NAME.search(line):
+                found.append(f"{path.relative_to(ROOT)}:{n}: {line.strip()}")
+    for path in sorted((ROOT / "godspeed_crypto_bot").rglob("*.py")):
+        for n, text in runtime_strings(path):
+            if CODE_NAME.search(text):
+                found.append(f"{path.relative_to(ROOT)}:{n}: {text.strip()[:100]}")
+    assert not found, "a research code name is shown to a person:\n" + "\n".join(found)
+
+
+def test_the_installer_prints_sentences_and_keeps_data_in_its_log():
+    """What the program prints as data (the preflight result, the first run) goes to the install log; the installer
+    says only sentences, and on a failed check lists the problems as lines of words."""
+    text = (ROOT / "install.sh").read_text(encoding="utf-8")
+    for command in ('"/usr/local/sbin/$NAME" preflight', '"/usr/local/sbin/$NAME" run-daily'):
+        calls = [ln for ln in text.splitlines() if command in ln and not ln.lstrip().startswith("#")]
+        assert calls, command
+        assert all("$log" in ln for ln in calls), f"output of {command} must go to the install log: {calls}"
+    # a result held in a variable is written to the log, never printed with say/echo/printf to the terminal
+    assert "printf '%s\\n' \"$said\" >> \"$log\"" in text
+
+
+def test_the_installers_own_sentences_are_plain():
+    """Every sentence the installer says or dies with has no braces, quoted keys or setting names."""
+    text = (ROOT / "install.sh").read_text(encoding="utf-8")
+    sentences = re.findall(r'\b(?:say|die) "([^"]*)"', text)
+    assert sentences
+    for s in sentences:
+        assert not re.search(r'[{}]|"\w+":|\bagent_approved_on\b', s), s
+
+
+def test_the_expiry_problem_names_the_command_and_the_command_sets_it(tmp_path, capsys):
+    import tomllib
+
+    from godspeed_crypto_bot import cli
+
+    p = tmp_path / "c.toml"
+    p.write_text('mode = "paper"\n')
+    assert cli.main(["--config", str(p), "configure", "--agent-approved-on", "2026-11-20"]) == 0
+    capsys.readouterr()
+    assert tomllib.loads(p.read_text())["agent_approved_on"] == "2026-11-20"
+    code = cli.main(["--config", str(p), "configure", "--agent-approved-on", "tomorrow"])
+    assert code != 0 and tomllib.loads(p.read_text())["agent_approved_on"] == "2026-11-20"  # a bad day changes nothing

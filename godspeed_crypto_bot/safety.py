@@ -22,7 +22,7 @@ import logging
 import time
 from datetime import date, datetime, timedelta, timezone
 
-from . import godspeed, outbox
+from . import godspeed, names, outbox
 from .execution import Executor, Leg, is_agent_failure  # noqa: F401 - re-exported
 
 log = logging.getLogger(__name__)
@@ -127,7 +127,8 @@ def expiry_problems(cfg, store, venue, now):
         return []  # venue.preflight already says the agent is not approved
     vu = rec.get("valid_until_ms")
     if not vu:
-        return ["the API wallet's expiry is unknown (Hyperliquid gives no validUntil; set agent_approved_on)"]
+        return [f"the API wallet's expiry is unknown, because Hyperliquid does not report it; tell the bot the day you "
+                f"approved the wallet on Hyperliquid with: {names.NAME} configure --agent-approved-on YYYY-MM-DD"]
     expiry = datetime.fromtimestamp(vu / 1000, tz=timezone.utc)
     if expiry - now < timedelta(days=EXPIRY_MIN_DAYS_TO_GO_LIVE):
         return [f"the API wallet expires {expiry:%Y-%m-%d %H:%M} UTC, less than {EXPIRY_MIN_DAYS_TO_GO_LIVE} days "

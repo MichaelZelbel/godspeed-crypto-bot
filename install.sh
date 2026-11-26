@@ -277,14 +277,28 @@ main() {
     || die "Could not start the $NAME-$k timer; see: systemctl status $NAME-$k.timer"; done
 
   # ---- check itself and do one paper run (never a live one: an update of a live bot only checks)
-  local mode
+  local mode said_ok
   # The mode is read as TOML (any spelling of it), and anything but paper or dry-run counts as live: no paper run then.
   mode="$("$CODE/.venv/bin/python" -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb")).get("mode", "dry-run"))' "$ETC/config.toml" 2>/dev/null || echo unknown)"
   case "$mode" in paper|dry-run) ;; *) mode="live" ;; esac
-  "/usr/local/sbin/$NAME" preflight || die "$DISPLAY's own check (preflight) did not pass; what it printed above says why."
+  # What the program prints as data goes to the install log; the person reads sentences only.
+  local log="$ETC/install.log" said
+  echo "== $(date -u '+%F %T') UTC: $DISPLAY $TAG, install or update" >> "$log"
+  chmod 0644 "$log"
+  if said="$("/usr/local/sbin/$NAME" preflight 2>>"$log")"; then said_ok=yes; else said_ok=no; fi
+  printf '%s\n' "$said" >> "$log"
+  if [ "$said_ok" != yes ]; then
+    say "$DISPLAY's own check (preflight) did not pass:"
+    printf '%s' "$said" | "$CODE/.venv/bin/python" -c 'import json, sys
+try:
+    for problem in json.load(sys.stdin).get("problems", []): print("  - " + problem)
+except ValueError:
+    pass'
+    die "The details are in $log."
+  fi
   if [ "$mode" != "live" ]; then
-    "/usr/local/sbin/$NAME" run-daily --allow-late >/dev/null \
-      || die "$DISPLAY's first paper run did not finish; run $NAME run-daily --allow-late to see why."
+    "/usr/local/sbin/$NAME" run-daily --allow-late >> "$log" 2>&1 \
+      || die "$DISPLAY's first paper run did not finish; the details are in $log, and '$NAME run-daily --allow-late' shows why."
   fi
   "/usr/local/sbin/$NAME" relay >/dev/null 2>&1 || true
   local channel

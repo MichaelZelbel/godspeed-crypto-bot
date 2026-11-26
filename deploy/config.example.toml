@@ -12,7 +12,7 @@ network = "mainnet"          # or "testnet" (api.hyperliquid-testnet.xyz), same 
 strategy = "mix"             # "mix" (half trend, half carry), "trend" (BTC and ETH) or "carry" (BTC, ETH, SOL)
 master_address = ""          # your Hyperliquid account (public address)
 capital_cap_usdc = 2000      # strategy equity = min(account value, this); money above it is ignored
-agent_approved_on = ""       # YYYY-MM-DD the API wallet was approved (only used if Hyperliquid gives no expiry)
+agent_approved_on = ""       # YYYY-MM-DD the API wallet was approved (only used if Hyperliquid gives no expiry); set it with: godspeed-crypto-bot configure --agent-approved-on YYYY-MM-DD
 # Testnet only (refused on mainnet): carry only the coins whose spot token testnet lists (it has no UBTC).
 # allow_missing_spot = true
 

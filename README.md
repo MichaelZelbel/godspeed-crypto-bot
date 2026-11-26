@@ -144,9 +144,9 @@ check and its own section in the assistant's instructions, and then widens those
 
 ## How it works
 
-**Strategy.** `strategy.py` holds `decide(history, books, equity)`. The trend book (S1-MAJ) takes the average sign of
+**Strategy.** `strategy.py` holds `decide(history, books, equity)`. The trend book takes the average sign of
 the 20, 60 and 120 day returns, sizes by 60 day volatility toward a volatility target with a covariance estimate,
-with caps per coin and for the book, and a no-trade band. The carry book (S2-HL-2x) holds the Unit spot token long
+with caps per coin and for the book, and a no-trade band. The carry book holds the Unit spot token long
 and the perpetual short in equal quantity, enters when the trailing 7 day funding rate is above a threshold and exits
 when it is below zero, resets both legs after a large price move and shares its equity between the active coins. In
 the mix the two books are virtual, reset to half and half monthly, and netted per coin into one Hyperliquid position.

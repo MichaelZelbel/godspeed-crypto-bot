@@ -2,7 +2,7 @@
 
 Amendment A1 made Hyperliquid funding the deciding input; live, every input is Hyperliquid's: daily perp
 candles for trend and the carry balance, daily Unit spot candles for the carry eligibility and the spot
-leg's mark, and hourly funding settlements summed per UTC day the way the lab sums them.
+leg's mark, and hourly funding settlements summed per UTC day the way the research summed them.
 """
 
 from __future__ import annotations

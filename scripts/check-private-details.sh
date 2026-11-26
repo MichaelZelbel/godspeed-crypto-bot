@@ -24,7 +24,9 @@ hosts='hstgr[.]cloud|srv[0-9]{6,}|mc-notif[y]|mc-artifact[s]|mc-crypto-bo[t]|god
 # addresses inside a private network: 10.x, 172.16-31.x, 192.168.x and the shared 100.64-127.x range
 nets='\b(10[.][0-9]+[.][0-9]+[.][0-9]+|192[.]168[.][0-9]+[.][0-9]+|172[.](1[6-9]|2[0-9]|3[01])[.][0-9]+[.][0-9]+|100[.](6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])[.][0-9]+[.][0-9]+)\b'
 names='mic[h]ael|zelbe[l]'
-own_repo='Michae[l]Zelbe[l]/godspeed-crypto-bot'   # the public repository's own address is not a private detail
+# The public addresses this tree names are not private details: this repository, and the website repository whose guide
+# map (.github/guide-map.json) is written here word for word.
+own_repo='Michae[l]Zelbe[l]/(godspeed-crypto-bot|godspeedmissioncontro[l])'
 
 extra=""
 if [ -n "${CRYPTO_BOT_PRIVATE_PATTERNS:-}" ] && [ -f "$CRYPTO_BOT_PRIVATE_PATTERNS" ]; then

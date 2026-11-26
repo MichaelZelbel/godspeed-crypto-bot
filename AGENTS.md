@@ -2,7 +2,7 @@
 
 Read README.md first. Rules for any change:
 
-- `godspeed_crypto_bot/strategy.py` is the lab's arithmetic, vendored. Do not "improve" it: any change must keep
+- `godspeed_crypto_bot/strategy.py` is the arithmetic of the research that chose the strategy, vendored. Do not "improve" it: any change must keep
   `tests/test_parity.py` green (bit-identical targets on all 1,016 hold-out days, equity curve to the cent).
 - Exchange specifics live in `godspeed_crypto_bot/venue/` only. The strategy never imports from there.
 - Nothing may sign or send outside `mode = "live"` with the live gate passed (`keys.live_problems`).
