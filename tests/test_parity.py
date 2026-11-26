@@ -1,4 +1,4 @@
-"""Strategy parity: every day of the lab's hold-out, the bot's decide() must order what the lab engine ordered.
+"""Strategy parity: every day of the research's hold-out, the bot's decide() must order what the research engine ordered.
 
 The fixture is the research engine's own replay of "S3-MAJ | HL funding",
 checked against the recorded hold-out evidence before it was written. For each day it holds what each
@@ -73,7 +73,7 @@ def _books(day, start_day, trend_equity, carry_equity):
 
 
 def test_parity_is_exact_where_the_fixture_was_made(doc):
-    """On Windows/AMD64 with numpy 2.5.3 (where the lab produced the fixture) the check is bit for bit."""
+    """On Windows/AMD64 with numpy 2.5.3 (where the research produced the fixture) the check is bit for bit."""
     assert doc["generated_on"]["numpy"] == "2.5.3"
 
 
@@ -85,7 +85,7 @@ def test_fixture_is_the_vendored_lab_code(doc):
 
 
 def test_every_holdout_day_matches_the_lab(doc, history):
-    """The equities here are the ones the lab's books saw, i.e. after its monthly reset, so the books get no
+    """The equities here are the ones the research's books saw, i.e. after its monthly reset, so the books get no
     start day (no second reset); test_monthly_reset_matches_the_lab covers the reset itself."""
     mismatches, resets, traded_days = [], 0, 0
     exact = _same_platform(doc)
@@ -103,11 +103,11 @@ def test_every_holdout_day_matches_the_lab(doc, history):
         resets += dec.reset
     assert not mismatches, mismatches[:5]
     assert traded_days > 300  # the replay is not vacuous: the books trade on many days
-    assert resets == 0  # equities were taken after the lab's reset, so decide() must not reset again
+    assert resets == 0  # equities were taken after the research's reset, so decide() must not reset again
 
 
 def test_monthly_reset_matches_the_lab(doc, history):
-    """From the previous day's closing equities, decide() itself applies the lab's 50/50 reset."""
+    """From the previous day's closing equities, decide() itself applies the research's 50/50 reset."""
     start_day = date.fromisoformat(doc["start_day"])
     checked = 0
     exact = _same_platform(doc)
@@ -127,9 +127,9 @@ def test_monthly_reset_matches_the_lab(doc, history):
 
 
 def test_shadow_ledger_reproduces_the_lab_equity_curve(doc, history):
-    """The bot runs its own books forward through the hold-out (decide, fill at the open with the lab's fees
-    and slippage tiers, mark at the close, funding, the lab's $5 per 30 days running cost) and must land on
-    the lab's recorded daily equity to the cent, every day."""
+    """The bot runs its own books forward through the hold-out (decide, fill at the open with the research's fees
+    and slippage tiers, mark at the close, funding, the research's $5 per 30 days running cost) and must land on
+    the research's recorded daily equity to the cent, every day."""
     from godspeed_crypto_bot.ledger import Shadow, ShadowState, slippage_for_rank
 
     start_day = date.fromisoformat(doc["start_day"])
@@ -155,9 +155,9 @@ def test_shadow_ledger_reproduces_the_lab_equity_curve(doc, history):
     assert worst < 0.01, worst
 
 
-# The two single-book choices. The lab recorded only the S3-MAJ mix, so the reference for "trend" and "carry"
-# is each book's own targets inside the lab engine's S3-MAJ replay, with the whole strategy equity in that book
-# (the books never look at each other, and sizing is linear in equity, so the lab's TrendBook alone with that
+# The two single-book choices. The research recorded only the S3-MAJ mix, so the reference for "trend" and "carry"
+# is each book's own targets inside the research engine's S3-MAJ replay, with the whole strategy equity in that book
+# (the books never look at each other, and sizing is linear in equity, so the research's TrendBook alone with that
 # equity decides exactly this).
 @pytest.mark.parametrize("strategy,book", [("trend", "trend"), ("carry", "carry")])
 def test_single_book_choice_matches_the_labs_book_every_holdout_day(doc, history, strategy, book):
@@ -190,7 +190,7 @@ def test_single_book_choice_matches_the_labs_book_every_holdout_day(doc, history
 
 
 def _scaled(books, k):
-    """The same book with every position and the equity multiplied by k (what the lab's book holds when it has
+    """The same book with every position and the equity multiplied by k (what the research's book holds when it has
     k times the money)."""
     t, c = books.trend, books.carry
     return Books(
@@ -204,7 +204,7 @@ def _scaled(books, k):
 def test_single_book_choice_with_the_whole_equity_in_the_book(doc, history, strategy):
     """The choice owns the whole equity: the book of the S3-MAJ replay scaled up to the mix's total equity
     (positions and equity both) must order the replay's orders scaled the same. Scaling changes the last bits,
-    so the documented 1e-12 relative; the coins ordered must be exactly the lab's."""
+    so the documented 1e-12 relative; the coins ordered must be exactly the research's."""
     from godspeed_crypto_bot.strategy import config_for
 
     cfg = config_for(strategy)

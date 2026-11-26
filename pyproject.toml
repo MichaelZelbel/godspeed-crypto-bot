@@ -6,7 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     # Exact pins. hyperliquid-python-sdk is the official SDK (github.com/hyperliquid-dex, MIT).
     "hyperliquid-python-sdk==0.24.0",
-    # Same numpy and pandas as the lab's uv.lock, so the strategy arithmetic is the lab's to the last bit.
+    # Same numpy and pandas as the research's uv.lock, so the strategy arithmetic is the research's to the last bit.
     "numpy==2.5.3",
     "pandas==3.0.6",
 ]

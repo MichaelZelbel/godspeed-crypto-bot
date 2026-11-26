@@ -205,7 +205,9 @@ def test_agent_expiry_falls_back_to_the_approval_date(cfg, store, notifier, call
     assert safety.expiry_problems(cfg, store, v, at(TODAY + timedelta(days=1))) != []  # 14 days left: not enough
     cfg.agent_approved_on = ""
     store.put("agent", {})
-    assert "unknown" in safety.expiry_problems(cfg, store, v, at(TODAY))[0]
+    said = safety.expiry_problems(cfg, store, v, at(TODAY))[0]
+    # in plain words, with the one command that sets it, and no setting name only the example file explains
+    assert "unknown" in said and "configure --agent-approved-on YYYY-MM-DD" in said and "agent_approved_on" not in said
     assert not calls.argv
 
 

@@ -7,6 +7,7 @@ import os
 import re
 import tomllib
 from dataclasses import dataclass, field, fields
+from datetime import date
 from pathlib import Path
 
 from .names import CONFIG_DIR, CREDENTIAL_PREFIX, RELAY_DIR, STATE_DIR
@@ -128,6 +129,13 @@ class Config:
             raise ValueError("capital_cap_usdc must be a number")
         if not self.capital_cap_usdc > 0:
             raise ValueError("capital_cap_usdc must be positive")
+        if self.agent_approved_on:
+            try:
+                if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", self.agent_approved_on):
+                    raise ValueError
+                date.fromisoformat(self.agent_approved_on)
+            except (TypeError, ValueError):
+                raise ValueError("agent_approved_on must be a day written YYYY-MM-DD") from None
         if self.master_address and not ADDRESS.match(self.master_address):
             raise ValueError("master_address must be a 0x-prefixed 40-hex-digit address")
         if not 1 <= self.limits.leverage <= 5:
