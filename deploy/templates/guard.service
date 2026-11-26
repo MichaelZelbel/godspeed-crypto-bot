@@ -1,0 +1,32 @@
+[Unit]
+Description=@DISPLAY@: five-minute guard (holdings, Unit peg, drawdown, margin)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+User=@NAME@
+Group=@NAME@
+WorkingDirectory=@STATE@
+Environment=PYTHONPATH=@CODE@
+Environment=PYTHONUNBUFFERED=1
+Environment=GODSPEED_CRYPTO_BOT_UNIT=%N
+Environment=GODSPEED_CRYPTO_BOT_EVERY=300
+Environment=GODSPEED_CRYPTO_BOT_OFFSET=30
+ImportCredential=@NAME@.*
+ExecStart=@CODE@/.venv/bin/python -m godspeed_crypto_bot.cli guard
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ReadWritePaths=@STATE@
+# The page (page.py); the dash: a missing directory is no reason not to trade.
+ReadWritePaths=-@PAGE@
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=768M
+CPUQuota=50%
+UMask=0077
+TimeoutStartSec=240

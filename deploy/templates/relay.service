@@ -1,0 +1,17 @@
+[Unit]
+Description=@DISPLAY@: carry its messages, key reminder and page address to Godspeed
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Root: only root can read the assistant's Telegram settings, reach Docker and write Caddy's add-on folder.
+# It never trades and never reads the exchange key; the bot's own files are only read as small JSON.
+Environment=PYTHONPATH=@CODE@
+Environment=PYTHONUNBUFFERED=1
+ExecStart=@CODE@/.venv/bin/python -m godspeed_crypto_bot.cli relay
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectControlGroups=true
+TimeoutStartSec=300

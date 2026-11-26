@@ -1,0 +1,24 @@
+#!/bin/sh
+# @NAME@: run any @DISPLAY@ command on this server exactly as its timers do (installed to /usr/local/sbin).
+#
+# Every command runs as the unprivileged bot user, in a transient systemd unit with the same hardening
+# and the same imported credentials (the exchange key from /etc/credstore.encrypted) as the scheduled runs.
+# keygen, relay, uninstall, go-live, configure and eligibility run as root: they write the encrypted key, reach
+# Godspeed, remove the program, write the confirmation file you typed, and edit the configuration.
+set -eu
+CODE=@CODE@
+STATE=@STATE@
+PY="$CODE/.venv/bin/python"
+for a in "$@"; do
+  case "$a" in
+    keygen|relay|uninstall|go-live|configure|eligibility)
+      exec env PYTHONPATH="$CODE" "$PY" -m godspeed_crypto_bot.cli "$@" ;;
+  esac
+done
+exec systemd-run --quiet --wait --pipe --collect --service-type=exec \
+  -p User=@NAME@ -p Group=@NAME@ \
+  -p "ImportCredential=@NAME@.*" \
+  -p WorkingDirectory="$STATE" -p Environment=PYTHONPATH="$CODE" \
+  -p NoNewPrivileges=true -p PrivateTmp=true -p ProtectHome=true -p ProtectSystem=strict \
+  -p ReadWritePaths="$STATE" -p ReadWritePaths="-@PAGE@" -p UMask=0077 \
+  "$PY" -m godspeed_crypto_bot.cli "$@"

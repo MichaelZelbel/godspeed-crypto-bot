@@ -1,0 +1,11 @@
+[Unit]
+Description=@DISPLAY@: the relay, every minute (timer)
+
+[Timer]
+OnCalendar=minutely
+AccuracySec=5s
+Persistent=false
+Unit=@NAME@-relay.service
+
+[Install]
+WantedBy=timers.target

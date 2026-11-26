@@ -1,0 +1,34 @@
+[project]
+name = "godspeed-crypto-bot"
+version = "0.1.0"
+description = "Crypto Bot, an add-on for Godspeed Mission Control: runs a trading strategy on Hyperliquid (the installer starts it in paper mode)"
+requires-python = ">=3.12"
+dependencies = [
+    # Exact pins. hyperliquid-python-sdk is the official SDK (github.com/hyperliquid-dex, MIT).
+    "hyperliquid-python-sdk==0.24.0",
+    # Same numpy and pandas as the lab's uv.lock, so the strategy arithmetic is the lab's to the last bit.
+    "numpy==2.5.3",
+    "pandas==3.0.6",
+]
+
+[project.scripts]
+godspeed-crypto-bot = "godspeed_crypto_bot.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["godspeed_crypto_bot"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B"]
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "ruff>=0.9"]

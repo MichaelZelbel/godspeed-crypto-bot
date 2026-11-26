@@ -1,0 +1,11 @@
+[Unit]
+Description=@DISPLAY@: daily decision and orders (timer)
+
+[Timer]
+OnCalendar=*-*-* 00:02:00 UTC
+AccuracySec=1s
+Persistent=true
+Unit=@NAME@-daily.service
+
+[Install]
+WantedBy=timers.target

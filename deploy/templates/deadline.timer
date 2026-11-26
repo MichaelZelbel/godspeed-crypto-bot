@@ -1,0 +1,10 @@
+[Unit]
+Description=@DISPLAY@: alert if the daily run missed 00:45 UTC; API wallet expiry (timer)
+
+[Timer]
+OnCalendar=*-*-* 00:45:00 UTC
+Persistent=true
+Unit=@NAME@-deadline.service
+
+[Install]
+WantedBy=timers.target

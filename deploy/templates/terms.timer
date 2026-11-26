@@ -1,0 +1,11 @@
+[Unit]
+Description=@DISPLAY@: weekly Hyperliquid terms check (timer)
+
+[Timer]
+OnCalendar=Mon *-*-* 06:00:00 UTC
+Persistent=true
+RandomizedDelaySec=600
+Unit=@NAME@-terms.service
+
+[Install]
+WantedBy=timers.target

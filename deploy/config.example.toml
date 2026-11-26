@@ -1,0 +1,30 @@
+# Crypto Bot: /etc/godspeed-crypto-bot/config.toml
+#
+# dry-run (default): real market data, decisions and intended orders recorded, nothing signed.
+# paper: fills simulated against the live order book, actual hourly funding.
+# live: real orders. Needs, all at once: mode = "live", the agent key in /etc/credstore.encrypted (keygen),
+#       master_address, a capital_cap_usdc you wrote yourself, and the confirmation file LIVE-CONFIRMED.<network> in
+#       this directory. Only `godspeed-crypto-bot go-live`, typed by you in a terminal, writes it; use that command
+#       rather than editing mode here.
+mode = "dry-run"
+godspeed_dir = ""            # the Godspeed Mission Control folder; the installer sets it (alerts and the page need it)
+network = "mainnet"          # or "testnet" (api.hyperliquid-testnet.xyz), same code path
+strategy = "mix"             # "mix" (half trend, half carry), "trend" (BTC and ETH) or "carry" (BTC, ETH, SOL)
+master_address = ""          # your Hyperliquid account (public address)
+capital_cap_usdc = 2000      # strategy equity = min(account value, this); money above it is ignored
+agent_approved_on = ""       # YYYY-MM-DD the API wallet was approved (only used if Hyperliquid gives no expiry)
+# Testnet only (refused on mainnet): carry only the coins whose spot token testnet lists (it has no UBTC).
+# allow_missing_spot = true
+
+[limits]
+min_order_usdc = 11          # Hyperliquid refuses orders under $10
+max_order_usdc = 0           # 0 = 1.4 x capital cap
+max_day_usdc = 0             # 0 = 4 x capital cap of traded notional per UTC day
+perp_slippage = 0.0025       # IOC limit at mid +-0.25%
+spot_slippage = 0.004
+leverage = 3                 # cross-margin ceiling set on every traded perp
+drawdown_halt = 0.25         # halt and flatten 25% below the starting capital
+
+[guard]
+trigger_leverage = 4.0
+target_leverage = 2.5

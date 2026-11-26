@@ -1,0 +1,30 @@
+[Unit]
+Description=@DISPLAY@: alert if the daily run missed 00:45 UTC; API wallet expiry
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+User=@NAME@
+Group=@NAME@
+WorkingDirectory=@STATE@
+Environment=PYTHONPATH=@CODE@
+Environment=PYTHONUNBUFFERED=1
+Environment=GODSPEED_CRYPTO_BOT_UNIT=%N
+Environment=GODSPEED_CRYPTO_BOT_EVERY=86400
+Environment=GODSPEED_CRYPTO_BOT_OFFSET=2700
+ImportCredential=@NAME@.*
+ExecStart=@CODE@/.venv/bin/python -m godspeed_crypto_bot.cli check-deadline
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ReadWritePaths=@STATE@
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=768M
+CPUQuota=50%
+UMask=0077
+TimeoutStartSec=300
