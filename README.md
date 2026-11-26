@@ -27,8 +27,9 @@ Godspeed reminders. Nobody else holds your money or your keys. Crypto Bot takes 
 - **Or your own strategy**, as a file of settings (`strategy = "file:<name>"`): which perpetuals, a signal from a
   fixed menu (momentum, moving-average cross, mean reversion, funding, fixed weights or an average of these), the
   direction, the sizing and how often it trades. `strategy check <file>` refuses anything outside the menu, one
-  sentence per problem, or says in plain words what it understood. It is settings, never code. In this version it
-  runs on paper and in dry-run. The format and three examples: [docs/strategy-files.md](docs/strategy-files.md).
+  sentence per problem, or says in plain words what it understood. It is settings, never code. Your assistant can
+  write it with you in your Godspeed's chat (see "Your own strategy" below). The format and three examples:
+  [docs/strategy-files.md](docs/strategy-files.md).
 - **A test against the past before it trades.** `backtest <strategy>` runs any strategy, built-in or file, day by
   day on Hyperliquid's past daily prices and funding with the same costs the bot's own records assume, and writes a
   report of its worst day, week and month, its deepest fall and how long it lasted, its fees and funding and how
@@ -37,7 +38,9 @@ Godspeed reminders. Nobody else holds your money or your keys. Crypto Bot takes 
 - **Paper first.** The installer starts in paper mode: the bot trades a pretend account against the live order
   book and books the real hourly funding, and nothing is signed or sent.
 - **Real money only by your own typed sentence.** `go-live` prints one sentence (the network, your account, the
-  bot's key and the most it may use); only you typing it, in a terminal, writes the confirmation file. The bot's
+  bot's key, the most it may use and the strategy, with a short fingerprint of a strategy file); only you typing it, in
+  a terminal, writes the confirmation file. Switching to another strategy, or changing the file, while trading real
+  money needs a new sentence. The bot's
   key can place orders but can never withdraw or send money out of your account.
 - **Safety checks.** A guard every five minutes, hard limits, a halt on a loss, a halt when the account
   stops matching the bot's books, a weekly check of Hyperliquid's terms. They limit risk; they do not remove it.
@@ -61,6 +64,9 @@ It makes no key and never switches to real money.
 - It refuses, in one sentence and changing nothing: not Linux, no systemd, not root, no Godspeed at the folder, or a
   Godspeed older than 2.0.0-beta.6 (the first release with the deadline door on both server installs).
 - **Running it again is the update**: the configuration, key, records, HALT file and page stay.
+- **What changed in 0.2.0:** your own strategy, tested against the past and run on paper, also from your Godspeed's
+  chat (below). The go-live sentence now names the strategy, so a bot that already trades real money pauses real money
+  after this update until you type the new sentence (`godspeed-crypto-bot go-live`); the update says so.
 - **What changed in 0.1.1:** on a native Godspeed server the bot no longer restarts Godspeed's web address.
 - **Remove it:** `godspeed-crypto-bot uninstall` stops and removes the timers, command, page address, program and
   user, and keeps the records and settings; `--purge` removes those too. It never touches the exchange: positions
@@ -70,9 +76,32 @@ It makes no key and never switches to real money.
 - To install from your own checkout, add `--source <folder or .tar.gz>` (or set `CRYPTO_BOT_SOURCE`).
 
 An assistant with a shell on the server can do all of it for you: [INSTALL-FOR-ASSISTANTS.md](INSTALL-FOR-ASSISTANTS.md)
-holds its steps. On a Godspeed installed on the server itself, the installer also puts a recipe (`skill/crypto-bot`)
-where Godspeed's assistant reads recipes. On the one-line Docker server Godspeed's assistant lives in its container and
-cannot run commands on the server, so you run them there, or an assistant you use over SSH does.
+holds its steps. The installer also puts a recipe (`skill/crypto-bot`) where Godspeed's assistant reads recipes, and a
+`crypto-bot` folder in the mission control folder it works in, on a Godspeed installed on the server itself and on the
+one-line Docker server alike. On the Docker server Godspeed's assistant lives in its container and cannot run commands
+on the server, so for anything but your own strategy you run the commands there, or an assistant you use over SSH does.
+
+## Your own strategy
+
+**In the chat.** Tell your Godspeed's assistant the strategy you have in mind, in your own words. It asks what it needs
+to know, writes it as a strategy file in `crypto-bot/strategies/` of your mission control folder, and says plainly
+what the file cannot express instead of guessing. It then asks the bot, with a small request file in
+`crypto-bot/requests/`, to check it (the bot says back in plain words what it understood), to test it against
+Hyperliquid's past prices (it explains the worst day, week and month and the deepest fall from the report), and, once
+you say yes, to run it on paper. The bot's relay answers each request within a minute (a first test can take a few
+minutes while it fetches prices), beside the request. Nothing in that folder is ever run as a program, and only paper
+actions go through it: real money, the cap, your account and the key are not reachable from the chat. Requests and
+answers stay on the server; your strategy files are yours and may be carried with the rest of your mission control
+folder.
+
+**In a terminal on the server.** `godspeed-crypto-bot strategy check <file>` says what the bot understood or every
+problem; put the file in `/etc/godspeed-crypto-bot/strategies/<name>.toml`; `godspeed-crypto-bot backtest
+file:<name>` tests it against the past; `godspeed-crypto-bot configure --strategy file:<name>` runs it from the next
+daily run.
+
+**Real money** with your own strategy is the same as with a built-in: you type the `go-live` sentence yourself, and it
+names your strategy and the file's fingerprint. If you change the file, or switch strategy, real money pauses until you
+type the new sentence.
 
 ## Going live
 
@@ -84,8 +113,9 @@ Real money is the last step, and the only one the bot cannot do for you. In orde
 4. You approve that address as an API wallet on Hyperliquid's API page. It expires after at most 180 days; the bot
    keeps a reminder for the renewal among your Godspeed reminders.
 5. You name the most the bot may use: `godspeed-crypto-bot configure --cap <USDC>` (there is no default for live).
-   Then `godspeed-crypto-bot go-live`, typed by you in a terminal: it checks everything, prints the sentence, and
-   switches on real money only when you type that sentence exactly. Input that is not a terminal is refused.
+   Then `godspeed-crypto-bot go-live`, typed by you in a terminal: it checks everything, prints the sentence (which
+   names the strategy it will run), and switches on real money only when you type that sentence exactly. Input that
+   is not a terminal is refused.
 6. From the next daily run real orders are placed, with positions sized from the cap you named. `halt` stops the bot;
    `flatten --yes` tries to close everything (and says what it could not).
 
@@ -117,7 +147,7 @@ On the server everything goes through `/usr/local/sbin/godspeed-crypto-bot`:
     godspeed-crypto-bot halt [--reason R] | resume | flatten --yes [--reason R]
     godspeed-crypto-bot run-daily [--allow-late] | guard | check-deadline | terms-check | terms-accept
     godspeed-crypto-bot export [--start YYYY-MM-DD] [--end YYYY-MM-DD] [--out FILE]
-    godspeed-crypto-bot page | relay | eligibility --restricted yes|no | uninstall [--purge] [--yes]
+    godspeed-crypto-bot page | relay | chat-door | eligibility --restricted yes|no | uninstall [--purge] [--yes]
     godspeed-crypto-bot --config <testnet config> selftest [--spot TOKEN]
 
 ## Records and the tax export

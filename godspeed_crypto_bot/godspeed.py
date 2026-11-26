@@ -13,6 +13,10 @@ same three doors, all used by Godspeed's other add-ons (docs/full-version/addon-
 Only root can reach all three (the assistant's .env, the Docker socket, Caddy), and the trading programs run
 as an unprivileged user, so they write to the outbox (outbox.py) and `godspeed-crypto-bot relay` carries it
 out. The relay never trades and never touches the key. Every outside call is injectable for the tests.
+
+The relay also answers the chat door (chat_door.py): the requests Godspeed's assistant writes in its own mission
+control folder. `assistant_root` finds that folder on the host: the Godspeed folder on a native install, and on the
+one-line Docker server the workspace inside Godspeed's container, through the container's mounts (a Docker volume).
 """
 
 from __future__ import annotations
@@ -30,7 +34,7 @@ import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import outbox
+from . import chat_door, outbox
 from .names import DISPLAY_NAME, NAME, PAGE_DIR
 
 log = logging.getLogger(__name__)
@@ -53,6 +57,8 @@ PAGE_RECHECK_S = 600  # the page address is looked at again this often (a Godspe
 DEADLINE_RECHECK_S = 6 * 3600  # Godspeed is asked again that often whether the reminder is still there
 SENDS_PER_RELAY = 50
 KEY_DEADLINE_KEY = "exchange-key"
+CHAT_ROOT_FILE = "chat-root.json"
+CHAT_ROOT_RECHECK_S = 600  # where the assistant's folder is on the host is looked up again this often
 
 
 def sh(argv, timeout=120, stdin=None):
@@ -94,6 +100,36 @@ def find(godspeed_dir) -> Godspeed | None:
     except (OSError, ValueError):
         pass
     return Godspeed(godspeed_dir)
+
+
+def assistant_root(gs, run=sh):
+    """(trusted base, [folders below it]) of the mission control folder Godspeed's assistant works in, on this host,
+    or None when it cannot be found. The folders below the base are walked without following links (chat_door)."""
+    if not gs.docker:
+        return Path(gs.root), []
+    code, out, _err = run(compose_args(gs) + ["ps", "-q", gs.docker["service"]], timeout=60)
+    ids = (out or "").split() if code == 0 else []
+    if not ids:
+        return None
+    code, out, _err = run(["docker", "inspect", ids[0]], timeout=60)
+    try:
+        mounts = json.loads(out)[0]["Mounts"] if code == 0 else []
+    except (ValueError, LookupError, TypeError):
+        return None
+    workspace, best = gs.docker["workspace"], None
+    for m in mounts if isinstance(mounts, list) else []:
+        dest, src = (m.get("Destination"), m.get("Source")) if isinstance(m, dict) else (None, None)
+        if not (_absolute(dest) and _absolute(src)):
+            continue
+        if (workspace == dest or workspace.startswith(dest.rstrip("/") + "/")) and (
+                best is None or len(dest) > len(best[0])):
+            best = (dest, src)
+    if best is None:
+        return None
+    rest = [p for p in workspace[len(best[0]):].split("/") if p]
+    if any(p in (".", "..") for p in rest):
+        return None
+    return Path(best[1]), rest
 
 
 def compose_args(gs):
@@ -646,6 +682,9 @@ class Relay:
     tell: object = None  # tell(text) -> True, or raises; default: the assistant's Telegram bot
     root: str = "/"
     problems: list = field(default_factory=list)
+    config_path: object = None  # the main configuration: only its relay answers the chat door
+    perps: object = None  # perps() -> the perpetuals Hyperliquid lists (default: asked once per run)
+    backtest: object = None  # the chat door's backtest runner (default: the bot's own, as its user)
 
     def _tell(self, text):
         if self.tell is not None:
@@ -726,6 +765,59 @@ class Relay:
             self.problems.append(f"the page has no address: {why}")
         return address
 
+    def _assistant_root(self):
+        """Where the assistant's folder is on this host, looked up again every ten minutes (Docker asks the
+        container)."""
+        if not self.gs.docker:
+            return assistant_root(self.gs, self.run)
+        target = self.cfg.relay_path / CHAT_ROOT_FILE
+        try:
+            if time.time() - target.stat().st_mtime < CHAT_ROOT_RECHECK_S:
+                doc = json.loads(target.read_text(encoding="utf-8"))
+                return Path(doc["base"]), list(doc["parts"])
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        found = assistant_root(self.gs, self.run)
+        if found:
+            try:
+                _write_keep(target, json.dumps({"base": str(found[0]), "parts": found[1]}))
+            except OSError as exc:
+                log.warning("the assistant's folder was not kept: %s", exc)
+        return found
+
+    def chat_door(self):
+        """Answer what Godspeed's assistant asked through its crypto-bot folder (chat_door.py)."""
+        if self.config_path is None:
+            return None
+        try:
+            root = self._assistant_root()
+            if root is None:
+                self.problems.append("the chat door is closed: Godspeed's assistant's folder was not found (is "
+                                     "Godspeed running?)")
+                return None
+            listed = {}
+
+            def perps():
+                if "perps" not in listed:
+                    if self.perps is not None:
+                        listed["perps"] = self.perps()
+                    else:
+                        from .venue.hyperliquid import HyperliquidMarketData
+
+                        listed["perps"] = HyperliquidMarketData(self.cfg.network).listed_perps()
+                return listed["perps"]
+
+            door = chat_door.Door(self.cfg, self.config_path, root, perps,
+                                  backtest=self.backtest or (lambda c, n, s, e, o: chat_door.run_backtest(
+                                      c, n, s, e, o, run=self.run)))
+            out = door()
+        except Exception as exc:  # noqa: BLE001 - the relay's other work must go on
+            self.problems.append(f"the chat door failed: {type(exc).__name__}: {exc}")
+            return None
+        if out.get("problem"):
+            self.problems.append(f"the chat door: {out['problem']}")
+        return out.get("answered")
+
     def __call__(self):
         out = {"sent": self.deliver_alerts()}
         out["channel"] = self.check_channel()
@@ -733,6 +825,7 @@ class Relay:
             self.problems.append(f"messages cannot reach you: {NO_CHANNEL}")
         out["deadline"] = self.sync_deadline()
         out["page"] = self.publish_page()
+        out["chat"] = self.chat_door()
         out["waiting"] = len(outbox.waiting_alerts(self.cfg))
         out["problems"] = self.problems
         out["at"] = time.time()

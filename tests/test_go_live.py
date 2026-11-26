@@ -7,7 +7,7 @@ from pathlib import Path
 import eth_account
 import pytest
 
-from godspeed_crypto_bot import config, configure, eligibility, golive, keys
+from godspeed_crypto_bot import config, configure, eligibility, golive, keys, strategy_file
 
 
 class Tty(io.StringIO):
@@ -274,3 +274,67 @@ def test_a_failed_final_check_puts_back_what_was_there(s):
     with pytest.raises(golive.NotDone, match="taken back"):
         go(s, sentence(s), cfg=live)
     assert live.confirm_file.read_text() == "the confirmation of an earlier key"
+
+
+# ---- the sentence names the strategy (0.2.0)
+
+MOMO = ('name = "momo"\ncoins = ["BTC", "ETH"]\nrebalance = "daily"\ndirection = "long-short"\n\n[signal]\n'
+        'kind = "momentum"\nlookbacks = [20, 60]\n\n[sizing]\nmethod = "equal"\n')
+
+
+def with_file(s, text=MOMO, mode="paper"):
+    folder = s.tmp / "strategies"
+    folder.mkdir(exist_ok=True)
+    (folder / "momo.toml").write_text(text, encoding="utf-8")
+    c = s.write(FULL.replace('"paper"', f'"{mode}"') + f'strategy = "file:momo"\nstrategies_dir = "{folder.as_posix()}"\n')
+    return c
+
+
+def test_the_sentence_names_the_strategy_and_a_files_fingerprint(s):
+    assert sentence(s).endswith(', running the strategy "mix".')
+    c = with_file(s)
+    fp = strategy_file.load_for(c).fingerprint
+    assert keys.confirmation_text(c, s.agent).strip().endswith(
+        f', running your own strategy "momo" with the fingerprint {fp}.')
+    assert go(s, keys.confirmation_text(c, s.agent).strip(), cfg=c)
+    assert c.confirm_file.read_text() == keys.confirmation_text(c, s.agent)
+
+
+def test_a_changed_strategy_while_live_is_refused_until_a_new_sentence(s):
+    live = s.write(FULL.replace('"paper"', '"live"'))
+    live.confirm_file.write_text(keys.confirmation_text(live, s.agent), encoding="utf-8")
+    assert not any("confirm" in p for p in keys_problems_with_key(live, s.agent))
+    switched = s.write(FULL.replace('"paper"', '"live"') + 'strategy = "trend"\n')
+    problems = keys_problems_with_key(switched, s.agent)
+    assert any('the strategy in use (the strategy "trend") is not the one you confirmed' in p for p in problems)
+    assert any("run godspeed-crypto-bot go-live in your own terminal" in p for p in problems)
+    s.preflight_exit = [0, 0]
+    assert go(s, keys.confirmation_text(switched, s.agent).strip(), cfg=switched)  # the new sentence, typed
+    assert not any("confirm" in p for p in keys_problems_with_key(switched, s.agent))
+
+
+def test_a_changed_strategy_file_while_live_is_a_new_strategy(s):
+    live = with_file(s, mode="live")
+    live.confirm_file.write_text(keys.confirmation_text(live, s.agent), encoding="utf-8")
+    assert not any("confirm" in p for p in keys_problems_with_key(live, s.agent))
+    (s.tmp / "strategies" / "momo.toml").write_text(MOMO.replace("[20, 60]", "[10, 30]"), encoding="utf-8")
+    problems = keys_problems_with_key(live, s.agent)
+    assert any('is not the one you confirmed' in p and 'your own strategy "momo"' in p for p in problems)
+    (s.tmp / "strategies" / "momo.toml").write_text(MOMO.replace('"daily"', '"hourly"'), encoding="utf-8")
+    problems = keys_problems_with_key(live, s.agent)
+    assert any(p.startswith("the strategy file cannot be used: rebalance must be") for p in problems)
+    with pytest.raises(golive.NotDone, match="The strategy file cannot be used"):
+        go(s, "x", cfg=live)
+
+
+def test_an_old_confirmation_from_version_0_1_is_refused_with_the_plain_explanation(s):
+    live = s.write(FULL.replace('"paper"', '"live"'))
+    old = (f"I approve live trading by Crypto Bot on mainnet for the account {MASTER.lower()} with the API wallet "
+           f"{s.agent.lower()}, using at most 500 USDC.\n")
+    live.confirm_file.write_text(old, encoding="utf-8")
+    problems = keys_problems_with_key(live, s.agent)
+    assert any(p.startswith("the confirmation you typed with an earlier version does not name the strategy") and
+               "Real money stays off until you type the confirmation sentence again" in p for p in problems)
+    s.preflight_exit = [0, 0]
+    assert go(s, sentence(s), cfg=live) == sentence(s)  # go-live asks for the new sentence; not "already live"
+    assert not any("confirm" in p for p in keys_problems_with_key(live, s.agent))

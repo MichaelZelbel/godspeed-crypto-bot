@@ -2,7 +2,7 @@
 
 Scheduled (systemd): run-daily 00:02 UTC, guard every 5 minutes, check-deadline 00:45 UTC, report weekly,
 terms-check weekly. By hand: status, flatten, halt, resume, keygen, preflight, go-live, configure, account-mode,
-terms-accept, export, page, test-alert, strategy check, backtest, and on testnet only selftest. run-daily, flatten, halt and resume refresh the owner's
+terms-accept, export, page, test-alert, strategy check, backtest, chat-door, and on testnet only selftest. run-daily, flatten, halt and resume refresh the owner's
 page afterwards, and so does a guard run that traded, moved money or alerted (page.py).
 """
 
@@ -13,6 +13,7 @@ import dataclasses
 import json
 import logging
 import os
+import re
 import sys
 import time
 from datetime import date, datetime, timezone
@@ -21,6 +22,7 @@ from pathlib import Path
 from . import (
     backtest,
     bot,
+    chat_door,
     config,
     configure,
     eligibility,
@@ -111,7 +113,41 @@ def _activity(cfg, store):
 def _context(args):
     cfg = config.load(args.config, mode=args.mode, network=args.network, state_dir=args.state_dir)
     store = bot.open_store(cfg)
+    try:  # what came through the chat door, from the relay's log into the bot's own records
+        chat_door.import_log(cfg, store)
+    except Exception as exc:  # noqa: BLE001 - never a reason for a command not to run
+        logging.getLogger(__name__).warning("chat requests not copied into the records: %s", exc)
     return cfg, store, Notifier(cfg, store)
+
+
+def _report_name(value):
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,99}", value or ""):
+        raise argparse.ArgumentTypeError("a report name is letters, digits, dashes and underscores")
+    return value
+
+
+def _chat_door_setup(cfg, version):
+    """root, from the installer: the assistant's crypto-bot folder and its recipe, on a native or a Docker Godspeed."""
+    gs = godspeed.find(cfg.godspeed_dir)
+    if gs is None:
+        print(f"{names.NAME}: godspeed_dir in the configuration does not name a Godspeed folder "
+              f"({cfg.godspeed_dir or 'not set'})", file=sys.stderr)
+        return EXIT_CONFIG
+    root = godspeed.assistant_root(gs)
+    if root is None:
+        print(f"{names.NAME}: Godspeed's assistant's folder was not found (is Godspeed running?); the chat door is not "
+              "set up, everything else works.", file=sys.stderr)
+        return 1
+    old = [str(Path(gs.root) / "skills" / "crypto-bot"), str(Path(gs.root) / ".claude" / "skills" / "crypto-bot")] \
+        if gs.docker else []
+    try:
+        said = chat_door.setup(root, Path(__file__).resolve().parent.parent, version, old_places=old)
+    except (chat_door.Refused, OSError) as exc:
+        print(f"{names.NAME}: the chat door could not be set up: {exc}", file=sys.stderr)
+        return 1
+    for line in said:
+        print(line)
+    return 0
 
 
 def _strategy_choice(value):
@@ -169,13 +205,13 @@ def _strategy(args, cfg):
     return 0
 
 
-def _relay(cfg):
+def _relay(cfg, config_path):
     gs = godspeed.find(cfg.godspeed_dir)
     if gs is None:
         print(f"{names.NAME}: godspeed_dir in the configuration does not name a Godspeed folder "
               f"({cfg.godspeed_dir or 'not set'})", file=sys.stderr)
         return EXIT_CONFIG
-    _print(godspeed.Relay(cfg, gs)())
+    _print(godspeed.Relay(cfg, gs, config_path=config_path)())  # only the main configuration answers the chat door
     practice = page.TESTNET_CONFIG  # a second track keeps its own outbox and relay folder
     if practice.exists():
         c = config.load(practice)
@@ -235,6 +271,9 @@ def main(argv=None):
     p.add_argument("--start", type=date.fromisoformat, help="first day to test (default: the earliest possible)")
     p.add_argument("--end", type=date.fromisoformat, help="last day to test (default: yesterday, the last closed day)")
     p.add_argument("--json", action="store_true", help="print the JSON report instead of the Markdown one")
+    p.add_argument("--out-name", type=_report_name, help=argparse.SUPPRESS)  # the chat door's own name for the report
+    p = sub.add_parser("chat-door", help="root: make the assistant's crypto-bot folder and put its recipe in place")
+    p.add_argument("--version", default="", help="the release being installed (kept with the recipe)")
     p = sub.add_parser("eligibility", help="root: record the answer to the country question")
     p.add_argument("--restricted", choices=("yes", "no"), required=True,
                    help="yes if you live in the US or Ontario, or are a resident or citizen of a sanctioned country")
@@ -261,7 +300,8 @@ def main(argv=None):
             print(address)
             return 0
         if args.command == "relay":  # root: never opens the bot's records, which belong to the bot's user
-            return _relay(config.load(args.config, mode=args.mode, network=args.network, state_dir=args.state_dir))
+            return _relay(config.load(args.config, mode=args.mode, network=args.network, state_dir=args.state_dir),
+                          config.config_path(args.config))
         if args.command == "go-live":
             cfg = config.load(args.config, mode=args.mode, network=args.network, state_dir=args.state_dir)
             try:
@@ -276,7 +316,7 @@ def main(argv=None):
         if args.command == "backtest":  # public data only: no records, no venue, no key
             cfg = config.load(args.config, mode=args.mode, network=args.network, state_dir=args.state_dir)
             try:
-                md, js, text = backtest.run(cfg, args.strategy, args.start, args.end)
+                md, js, text = backtest.run(cfg, args.strategy, args.start, args.end, name=args.out_name)
             except backtest.BacktestError as exc:
                 print(f"{names.NAME}: {exc}", file=sys.stderr)
                 return 1
@@ -285,15 +325,14 @@ def main(argv=None):
             return 0
         if args.command == "strategy":
             return _strategy(args, config.load(args.config, network=args.network))
+        if args.command == "chat-door":
+            return _chat_door_setup(config.load(args.config), args.version)
         if args.command == "configure":
             path = config.config_path(args.config)
             now = config.load(path)
             wanted = args.strategy or now.strategy
             if strategy_file.is_file_setting(wanted) and (args.strategy or args.set_network):
                 # the file is checked for the configuration this command makes: its strategy on its network
-                if now.mode == "live" and wanted != now.strategy:
-                    print(f"{names.NAME}: {keys.FILE_NOT_LIVE}; nothing was changed.", file=sys.stderr)
-                    return 1
                 target = strategy_file.path_for(now.strategies_dir, strategy_file.setting_name(wanted))
                 _spec, problems = _check_file(dataclasses.replace(now, network=args.set_network or now.network),
                                               target)
@@ -315,6 +354,9 @@ def main(argv=None):
             _print({"network": cfg.network, "strategy": cfg.strategy,
                     "strategy_in_words": strategy_file.words(cfg), "master_address": cfg.master_address,
                     "capital_cap_usdc": cfg.capital_cap_usdc if cfg.cap_named else None, "mode": cfg.mode})
+            if cfg.mode == "live" and args.strategy and args.strategy != now.strategy:
+                print(f"The strategy changed while {names.DISPLAY_NAME} trades real money, and the confirmation you "
+                      f"typed names the strategy. {keys.NEW_SENTENCE}", file=sys.stderr)
             return 0
         if args.command == "eligibility":
             cfg = config.load(args.config, mode=args.mode, network=args.network, state_dir=args.state_dir)

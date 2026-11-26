@@ -215,6 +215,19 @@ CREATE TABLE IF NOT EXISTS invocations (
     retries TEXT,
     pid INTEGER
 );
+CREATE TABLE IF NOT EXISTS chat_requests (
+    id INTEGER PRIMARY KEY,
+    request TEXT NOT NULL,
+    at REAL NOT NULL,
+    mode TEXT,
+    network TEXT,
+    kind TEXT,
+    strategy TEXT,
+    fingerprint TEXT,
+    outcome TEXT NOT NULL,
+    said TEXT,
+    UNIQUE(request, at)
+);
 CREATE VIEW IF NOT EXISTS skipped_orders AS
     SELECT id, run_id, ts, mode, network, day, purpose, coin, market, side, size, decision_mid, notional, reason
     FROM orders WHERE status LIKE 'skipped%';
@@ -458,6 +471,18 @@ class Store:
         return row is not None
 
     # ---- every command the bot ran: when it was due, when it started and finished, what came of it
+
+    def add_chat_request(self, doc):
+        """One request through the chat door and its outcome, from the relay's log; once each. Returns 1 if new."""
+        cur = self.db.execute(
+            "INSERT OR IGNORE INTO chat_requests(request, at, mode, network, kind, strategy, fingerprint, outcome, said) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (str(doc["request"]), float(doc["at"]), doc.get("mode"), doc.get("network"), doc.get("kind"),
+             doc.get("strategy"), doc.get("fingerprint"), str(doc["outcome"]), doc.get("said")))
+        return cur.rowcount
+
+    def chat_requests(self, limit=20):
+        return self.db.execute("SELECT * FROM chat_requests ORDER BY at DESC LIMIT ?", (limit,)).fetchall()
 
     def start_invocation(self, command, unit, every_s, scheduled_at, proc_start, main_start, pid):
         cur = self.db.execute(

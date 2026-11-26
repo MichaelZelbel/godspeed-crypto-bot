@@ -5,13 +5,16 @@ After=network-online.target
 [Service]
 Type=oneshot
 # Root: only root can read the assistant's Telegram settings, reach Docker and write Caddy's add-on folder.
-# It never trades and never reads the exchange key; the bot's own files are only read as small JSON.
+# It never trades and never reads the exchange key; the bot's own files are only read as small files, never
+# through a link (its outbox, and a report the chat door asked for).
 Environment=PYTHONPATH=@CODE@
 Environment=PYTHONUNBUFFERED=1
 ExecStart=@CODE@/.venv/bin/python -m godspeed_crypto_bot.cli relay
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectHome=read-only
+# Not ProtectHome: on a Godspeed installed natively the assistant's mission control folder, where the chat door writes
+# its answers, is usually in a home folder. The unit already reaches Docker, which is root's equal.
 ProtectKernelTunables=true
 ProtectControlGroups=true
-TimeoutStartSec=300
+# A backtest asked for through the chat door runs inside the relay, once, and may fetch years of prices first.
+TimeoutStartSec=1800

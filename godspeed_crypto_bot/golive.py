@@ -1,7 +1,8 @@
 """`godspeed-crypto-bot go-live`: the one way real money gets switched on, and only by the person typing.
 
 It checks everything that can be checked first (nothing is written if anything fails), prints the exact
-confirmation sentence (network, account, API wallet, the most the bot may use), reads ONE line typed on the
+confirmation sentence (network, account, API wallet, the most the bot may use, the strategy and for a strategy file
+its fingerprint), reads ONE line typed on the
 terminal, and only an exact match writes the confirmation file. Standard input that is not a terminal is
 refused. After the file is written the bot's own preflight runs once more in live mode; only when that is clean
 does the configuration change to mode = "live". The bot itself never writes the confirmation file, and the
@@ -14,7 +15,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import configure, eligibility, godspeed, keys
+from . import configure, eligibility, godspeed, keys, strategy_file
 from .config import ADDRESS
 from .names import DISPLAY_NAME, NAME
 
@@ -36,11 +37,16 @@ def go_live(cfg, config_path, stdin=None, stdout=None, ask=input, run=godspeed.s
     if not (stdin.isatty() and stdout.isatty()):
         raise NotDone("go-live must be run by you, typing in a terminal. It reads your own typed confirmation, "
                       "so it refuses input that is not a terminal, and nothing was changed.")
+    try:
+        keys.strategy_in_sentence(cfg)
+    except strategy_file.StrategyFileError as exc:
+        raise NotDone("The strategy file cannot be used, so nothing was changed: " + " ".join(exc.problems)) from None
     agent_now = keys.address_path(cfg)
     if (cfg.mode == "live" and Path(cfg.confirm_file).is_file() and agent_now.is_file()
             and Path(cfg.confirm_file).read_text(encoding="utf-8") == keys.confirmation_text(
                 cfg, agent_now.read_text(encoding="utf-8").strip())):
-        raise NotDone(f"{DISPLAY_NAME} is already set to trade live on {cfg.network}.")  # a renewed key, a new cap: not
+        # a renewed key, a new cap or another strategy make another sentence: those are confirmed again below
+        raise NotDone(f"{DISPLAY_NAME} is already set to trade live on {cfg.network} with this strategy.")
     if not ADDRESS.match(cfg.master_address or ""):
         raise NotDone("master_address is not set: it is your Hyperliquid account address "
                       f"(run: {NAME} configure --master <address>).")

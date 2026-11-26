@@ -6,13 +6,14 @@
 # keygen, relay, uninstall, go-live, configure and eligibility run as root: they write the encrypted key, reach
 # Godspeed, remove the program, write the confirmation file you typed, and edit the configuration. strategy (check)
 # runs as root too, so it can read a strategy file in your home folder; it only reads that file as settings.
+# chat-door (the installer's) makes the assistant's crypto-bot folder and puts its recipe where it reads recipes.
 set -eu
 CODE=@CODE@
 STATE=@STATE@
 PY="$CODE/.venv/bin/python"
 for a in "$@"; do
   case "$a" in
-    keygen|relay|uninstall|go-live|configure|eligibility|strategy)
+    keygen|relay|uninstall|go-live|configure|eligibility|strategy|chat-door)
       exec env PYTHONPATH="$CODE" "$PY" -m godspeed_crypto_bot.cli "$@" ;;
   esac
 done

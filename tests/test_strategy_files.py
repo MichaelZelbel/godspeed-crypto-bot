@@ -18,7 +18,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from godspeed_crypto_bot import bot, cli, config, keys, page, records, report, strategy_file
+from godspeed_crypto_bot import bot, cli, config, page, records, report, strategy_file
 from godspeed_crypto_bot.data import build_history
 from godspeed_crypto_bot.strategy import Books, CarryBookState, History, TrendBookState, config_for, decide
 from godspeed_crypto_bot.strategy_file import StrategyFileError, check_bytes, explain, summary
@@ -513,7 +513,7 @@ def test_every_kind_has_plain_words_without_forecasts(signal):
 
 def test_the_fingerprint_names_the_file():
     a = spec_of(BASE).fingerprint
-    assert re.fullmatch(r"[0-9a-f]{8}", a)
+    assert re.fullmatch(r"[0-9a-f]{16}", a)  # 64 bits: no other file can be made to match (the go-live sentence)
     assert spec_of(BASE.replace("\n", "\r\n")).fingerprint == a  # the same file through a Windows editor
     assert spec_of(BASE + "# a comment\n").fingerprint != a  # any change is a new fingerprint
     assert spec_of(BASE).book_id == f"file:base#{a}"
@@ -890,15 +890,12 @@ def test_readable_by_the_bot_follows_the_file_modes(tmp_path):
     os.chmod(tmp_path, 0o755)
 
 
-def test_a_strategy_file_stays_on_paper_in_this_version(tmp_path, listed, cfg, capsys):
-    p = write_config(tmp_path, 'mode = "live"\n'.replace("mode", "# mode"))
-    text = p.read_text().replace('mode = "paper"', 'mode = "live"')
-    p.write_text(text)
+def test_configure_while_live_says_a_new_go_live_is_needed(tmp_path, listed, cfg, capsys):
+    """Ticket 03: a strategy file may run live, but only under a sentence that names it (tests/test_go_live.py)."""
+    p = write_config(tmp_path)
+    p.write_text(p.read_text().replace('mode = "paper"', 'mode = "live"'))
     (tmp_path / "strategies" / "base.toml").write_text(BASE, encoding="utf-8")
-    assert cli.main(["--config", str(p), "configure", "--strategy", "file:base"]) == 1
-    assert "a strategy file runs on paper and in dry-run only in this version" in capsys.readouterr().err
-    assert config.load(p).strategy == "mix"
-    cfg.mode, cfg.strategy = "live", "file:base"
-    assert keys.FILE_NOT_LIVE in keys.live_problems(cfg)
-    cfg.strategy = "trend"
-    assert keys.FILE_NOT_LIVE not in keys.live_problems(cfg)
+    assert cli.main(["--config", str(p), "configure", "--strategy", "file:base"]) == 0
+    err = capsys.readouterr().err
+    assert "The strategy changed while Crypto Bot trades real money" in err and "go-live" in err
+    assert config.load(p).strategy == "file:base"
