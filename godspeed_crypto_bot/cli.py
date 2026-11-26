@@ -2,7 +2,7 @@
 
 Scheduled (systemd): run-daily 00:02 UTC, guard every 5 minutes, check-deadline 00:45 UTC, report weekly,
 terms-check weekly. By hand: status, flatten, halt, resume, keygen, preflight, go-live, configure, account-mode,
-terms-accept, export, page, test-alert, strategy check, and on testnet only selftest. run-daily, flatten, halt and resume refresh the owner's
+terms-accept, export, page, test-alert, strategy check, backtest, and on testnet only selftest. run-daily, flatten, halt and resume refresh the owner's
 page afterwards, and so does a guard run that traded, moved money or alerted (page.py).
 """
 
@@ -19,6 +19,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 from . import (
+    backtest,
     bot,
     config,
     configure,
@@ -229,6 +230,11 @@ def main(argv=None):
     p.add_argument("action", choices=("check",))
     p.add_argument("file", help="the strategy file (TOML)")
     p.add_argument("--json", action="store_true", help="print the result as JSON")
+    p = sub.add_parser("backtest", help="test a strategy against Hyperliquid's past prices (public data only, no key)")
+    p.add_argument("strategy", metavar="mix|trend|carry|file:<name>")
+    p.add_argument("--start", type=date.fromisoformat, help="first day to test (default: the earliest possible)")
+    p.add_argument("--end", type=date.fromisoformat, help="last day to test (default: yesterday, the last closed day)")
+    p.add_argument("--json", action="store_true", help="print the JSON report instead of the Markdown one")
     p = sub.add_parser("eligibility", help="root: record the answer to the country question")
     p.add_argument("--restricted", choices=("yes", "no"), required=True,
                    help="yes if you live in the US or Ontario, or are a resident or citizen of a sanctioned country")
@@ -266,6 +272,16 @@ def main(argv=None):
             print(f"Done. {cfg.network} is live: from the next daily run (00:02 UTC) real orders are placed, "
                   f"never more than {cfg.capital_cap_usdc:g} USDC of yours. Stop it any time with: "
                   f"{names.NAME} halt")
+            return 0
+        if args.command == "backtest":  # public data only: no records, no venue, no key
+            cfg = config.load(args.config, mode=args.mode, network=args.network, state_dir=args.state_dir)
+            try:
+                md, js, text = backtest.run(cfg, args.strategy, args.start, args.end)
+            except backtest.BacktestError as exc:
+                print(f"{names.NAME}: {exc}", file=sys.stderr)
+                return 1
+            sys.stdout.write(js.read_text(encoding="utf-8") if args.json else text)
+            print(f"written: {md} and {js}", file=sys.stderr)
             return 0
         if args.command == "strategy":
             return _strategy(args, config.load(args.config, network=args.network))

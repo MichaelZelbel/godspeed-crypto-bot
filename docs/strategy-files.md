@@ -13,9 +13,15 @@ Nothing here is advice or a forecast. A strategy that looks sensible can lose mo
 2. Check it: `godspeed-crypto-bot strategy check my-trend.toml`. It lists every problem, one sentence each, or says
    in plain words what the bot understood, with a short fingerprint of the file (it changes whenever the file
    changes).
-3. Put it in the bot's strategies folder, `/etc/godspeed-crypto-bot/strategies/my-trend.toml`, and choose it:
-   `godspeed-crypto-bot configure --strategy file:my-trend`. That checks the file again and refuses one that fails.
-   From the next daily run (00:02 UTC) the bot runs it, and `status`, the page and the weekly report name it.
+3. Put it in the bot's strategies folder, `/etc/godspeed-crypto-bot/strategies/my-trend.toml`, and test it against
+   the past: `godspeed-crypto-bot backtest file:my-trend` (add `--start YYYY-MM-DD` or `--end YYYY-MM-DD` for part of
+   the history). It runs the file day by day on Hyperliquid's past prices with the same costs the bot's own records
+   assume, and shows its worst day, week and month, its deepest fall from a high point and how long that lasted, the
+   fees and funding, how often it traded, and the same for simply holding the coins. It is the past, not a forecast.
+   The report is kept in `/var/lib/godspeed-crypto-bot/backtests/`.
+4. Choose it: `godspeed-crypto-bot configure --strategy file:my-trend`. That checks the file again and refuses one
+   that fails. From the next daily run (00:02 UTC) the bot runs it, and `status`, the page and the weekly report name
+   it.
 
 In this version a strategy file runs on paper (simulated money on real prices) and in dry-run; for real money choose
 one of the built-in strategies.
