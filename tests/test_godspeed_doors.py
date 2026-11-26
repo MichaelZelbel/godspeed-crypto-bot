@@ -434,6 +434,44 @@ def test_a_failed_restart_puts_back_once_and_never_loops(tmp_path):
     assert address == f"https://srv1.example.com/{NAME}/" and not tried.exists()
 
 
+def test_the_attempt_is_noted_before_the_restart_and_a_relay_stopped_halfway_does_not_restart_again(tmp_path):
+    own_unit(tmp_path, f'"{GODSPEED_CADDY}" run --config "{GODSPEED_CADDYFILE}" --adapter caddyfile', GODSPEED_CADDYFILE)
+    tried = tmp_path / "relay" / godspeed.PAGE_TRIED
+    restarts = []
+
+    def stopped_at_the_restart(argv, timeout=120, stdin=None):
+        if argv[:2] == ["systemctl", "restart"]:
+            restarts.append(tried.exists())  # the note is on disk before the restart is asked for
+            raise KeyboardInterrupt("the relay is stopped here")
+        return 0, "", ""
+
+    front = godspeed.native_front(str(tmp_path), stopped_at_the_restart)
+    with pytest.raises(KeyboardInterrupt):
+        godspeed.publish_native(front, str(tmp_path), stopped_at_the_restart, tried)
+    assert restarts == [True]
+    (tmp_path / "etc/caddy/godspeed-addons/paths" / f"{NAME}.caddy").unlink()  # as if put back before it stopped
+    calls = []
+    godspeed.publish_native(front, str(tmp_path), lambda argv, **k: calls.append(argv) or (0, "", ""), tried)
+    assert calls == []
+
+
+def test_no_restart_when_the_relay_cannot_write_its_note(tmp_path):
+    own_unit(tmp_path, f"{GODSPEED_CADDY} run --config {GODSPEED_CADDYFILE}", GODSPEED_CADDYFILE)
+    blocked = tmp_path / "relay-is-a-file"
+    blocked.write_text("")
+    calls = []
+
+    def run(argv, timeout=120, stdin=None):
+        calls.append(argv)
+        return 0, "", ""
+
+    front = godspeed.native_front(str(tmp_path), run)
+    address, why = godspeed.publish_native(front, str(tmp_path), run, blocked / godspeed.PAGE_TRIED)
+    assert address is None and "was not restarted" in why
+    assert [c for c in calls if c[0] == "systemctl"] == []
+    assert not (tmp_path / "etc/caddy/godspeed-addons/paths" / f"{NAME}.caddy").exists()
+
+
 def test_the_relay_never_restarts_godspeeds_web_address_in_a_loop(cfg, tmp_path, monkeypatch):
     own_unit(tmp_path, f'"{GODSPEED_CADDY}" run --config "{GODSPEED_CADDYFILE}" --adapter caddyfile', GODSPEED_CADDYFILE)
     page_dir = tmp_path / "page"

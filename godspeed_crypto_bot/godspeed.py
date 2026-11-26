@@ -501,24 +501,35 @@ def publish_native(front, root="/", run=sh, tried=None):
         else:
             _write_keep(target, before)
 
-    def failed(why):
-        if tried is not None:
-            try:
-                _write_keep(Path(tried), json.dumps({"key": key, "why": why, "at": time.time()}))
-            except OSError as exc:
-                log.warning("the failed page attempt was not kept: %s", exc)
-        return None, why
+    def note(why):
+        """Keep the attempt, so the same one is never made again. False when the note could not be written."""
+        if tried is None:
+            return True
+        try:
+            _write_keep(Path(tried), json.dumps({"key": key, "why": why, "at": time.time()}))
+            return True
+        except OSError as exc:
+            log.warning("the page attempt could not be noted: %s", exc)
+            return False
 
     _write_keep(target, want)
     caddyfile = Path(root) / front["caddyfile"].lstrip("/")
     if run([front["binary"], "validate", "--config", str(caddyfile), "--adapter", "caddyfile"])[0] != 0:
         put_back()  # Caddy never read the file: taking it out again is all, and nothing is restarted
-        return failed("Caddy's own check did not accept the page's address, so nothing was changed")
+        why = "Caddy's own check did not accept the page's address, so nothing was changed"
+        note(why)  # without the note the check runs again later, which restarts nothing either
+        return None, why
+    # Noted before the restart, so a relay stopped halfway, or a failed restart, can never lead to the same
+    # restart again; the note goes once Caddy has taken the file. No note, no restart.
+    why = "Caddy did not take the page's address, so it serves what it served before"
+    if not note(why):
+        put_back()
+        return None, "the relay could not write in its own folder, so Godspeed's web address was not restarted"
     restart = ["systemctl", "restart", front["unit"]] if front["kind"] == "own" else ["systemctl", "reload", "caddy"]
     if run(restart)[0] != 0:  # take the file out again, and make Caddy read what it read before, once
         put_back()
         run(restart)
-        return failed("Caddy did not take the page's address, so it serves what it served before")
+        return None, why
     if tried is not None:
         Path(tried).unlink(missing_ok=True)
     return address, ""
