@@ -80,18 +80,58 @@ class SafeDir:
 
     @classmethod
     def open_base(cls, base) -> SafeDir:
-        """The trusted starting point (the Godspeed folder as configured, or the Docker volume's own folder), resolved
-        once: a Godspeed folder reached through a link is still the person's. Everything below it is walked without
-        following links and must belong to the same user, so a redirected base can only lead into that user's own
-        folders."""
-        base = Path(os.path.realpath(base))
-        st = os.lstat(base)
-        if stat.S_ISLNK(st.st_mode) or not stat.S_ISDIR(st.st_mode):
-            raise Refused(f"{base} is not a plain folder.")
-        fd = os.open(base, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)) if POSIX_FDS else None
-        if fd is not None:
-            st = os.fstat(fd)
-        return cls(base, fd, st.st_uid, st.st_gid)
+        """The starting point (the Godspeed folder as configured, or the Docker volume's own folder), walked from the
+        root of the file system one folder at a time. A link on the way is followed only when root owns it or the owner
+        of the folder it leads to does: a Godspeed folder reached through its own owner's link still works, but a link
+        a user planted can never lead the relay into root's folders or another user's. Everything below the base is
+        then walked without following links at all and must belong to the base's owner."""
+        base = str(base)
+        if not POSIX_FDS:  # the tests on Windows: the same rules on paths
+            p = Path(os.path.realpath(base))
+            st = os.lstat(p)
+            if not stat.S_ISDIR(st.st_mode):
+                raise Refused(f"{base} is not a plain folder.")
+            return cls(p, None, st.st_uid, st.st_gid)
+        if not base.startswith("/"):
+            raise Refused(f"{base} is not an absolute folder.")
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        fds, names, link_owners, hops = [os.open("/", os.O_RDONLY | os.O_DIRECTORY)], [], [], 0
+        pending = base.split("/")
+        try:
+            while pending:
+                name = pending.pop(0)
+                if name in ("", "."):
+                    continue
+                if name == "..":
+                    if names:
+                        os.close(fds.pop())
+                        names.pop()
+                    continue
+                st = os.lstat(name, dir_fd=fds[-1])
+                if stat.S_ISLNK(st.st_mode):
+                    hops += 1
+                    if hops > 40:
+                        raise Refused(f"{base} leads through too many links.")
+                    link_owners.append(st.st_uid)
+                    target = os.readlink(name, dir_fd=fds[-1])
+                    if target.startswith("/"):
+                        while len(fds) > 1:
+                            os.close(fds.pop())
+                        names.clear()
+                    pending = target.split("/") + pending
+                    continue
+                if not stat.S_ISDIR(st.st_mode):
+                    raise Refused(f"{base} is not a plain folder.")
+                fds.append(os.open(name, flags, dir_fd=fds[-1]))
+                names.append(name)
+            st = os.fstat(fds[-1])
+            if any(owner not in (0, st.st_uid) for owner in link_owners):
+                raise Refused(f"{base} is reached through a link of another user than the folder's owner.")
+            fd = fds.pop()
+        finally:
+            for f in fds:
+                os.close(f)
+        return cls(Path("/" + "/".join(names)), fd, st.st_uid, st.st_gid)
 
     def close(self):
         if self.fd is not None:
@@ -385,20 +425,32 @@ class Door:
         """The checked file into the bot's own strategies folder, unless that would change the strategy the bot runs
         now without the person's yes to running it (a use-on-paper request)."""
         target = strategy_file.path_for(self.cfg.strategies_dir, spec.name)
-        if self.cfg.strategy == spec.setting and kind != "use-on-paper" and target.exists():
+        if self.cfg.strategy == spec.setting and (kind != "use-on-paper" or self.cfg.mode == "live"):
+            # The file the bot runs is replaced only through use-on-paper, and never while live: compared byte for
+            # byte (as the fingerprint counts them), not by the fingerprint, which a writer of this folder could match.
             try:
-                running = strategy_file.fingerprint(target.read_bytes())
+                same = _unix(target.read_bytes()) == _unix(data)
             except OSError:
-                running = None
-            if running != spec.fingerprint:
-                raise Refused(f'{DISPLAY_NAME} runs "{spec.name}" now, and this file is a changed version of it. To '
-                              f"check or test the change, save it under its own name (for example {spec.name}-2); to "
-                              "run it, ask to use it on paper. Nothing was changed.")
+                same = False
+            if same:
+                return
+            if self.cfg.mode == "live":
+                raise Refused(f'{DISPLAY_NAME} trades real money with "{spec.name}" now, and this file is a changed '
+                              f"version of it. To check or test the change, save it under its own name (for example "
+                              f"{spec.name}-2). Nothing was changed.")
+            raise Refused(f'{DISPLAY_NAME} runs "{spec.name}" now, and this file is a changed version of it. To check or '
+                          f"test the change, save it under its own name (for example {spec.name}-2); to run it, ask to "
+                          "use it on paper. Nothing was changed.")
         target.parent.mkdir(parents=True, exist_ok=True)
         tmp = target.with_name(f".{target.name}.{os.getpid()}.tmp")
         tmp.write_bytes(data)
         os.chmod(tmp, 0o644)
         os.replace(tmp, target)
+
+
+def _unix(data: bytes) -> bytes:
+    """A file's bytes with Windows line endings as Unix ones, as the fingerprint counts them."""
+    return data.replace(b"\r\n", b"\n")
 
 
 def append_log(cfg, doc):
@@ -468,8 +520,11 @@ def setup(root, code_dir, version, old_places=()):
         try:
             for sub in (STRATEGIES, REQUESTS):
                 folder.sub(sub, create=True).close()
-            if not folder.exists(".gitignore"):
-                folder.write(".gitignore", GITIGNORE.encode())
+            ignore = folder.read(".gitignore", 64 * 1024).decode("utf-8", "replace") if folder.exists(
+                ".gitignore") else ""
+            if "requests/" not in [ln.strip() for ln in ignore.splitlines()]:  # an older or hand-made one gains it
+                kept = ignore.rstrip() + "\n\n" if ignore.strip() else ""
+                folder.write(".gitignore", (kept + GITIGNORE).encode())
             if not folder.exists("README.md"):
                 folder.write("README.md", README.encode())
         finally:

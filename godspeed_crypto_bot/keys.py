@@ -92,7 +92,7 @@ def confirmation_problem(cfg: Config, agent_address: str, text: str):
                 "does. " + NEW_SENTENCE)
     rest = text[len(before):] if text.startswith(before) else ""
     if re.fullmatch(r', running (the strategy "[a-z]+"|your own strategy "[a-z][a-z0-9-]*" with the fingerprint '
-                    r'[0-9a-f]{8})\.\n', rest):  # a well-formed sentence for another strategy
+                    r'[0-9a-f]{16})\.\n', rest):  # a well-formed sentence for another strategy
         return (f"the strategy in use ({strategy_in_sentence(cfg)}) is not the one you confirmed; changing the strategy "
                 "or its file while trading real money needs a new sentence. " + NEW_SENTENCE)
     return (f"confirmation file {cfg.confirm_file} does not match this network, account, key, cap and strategy (only "

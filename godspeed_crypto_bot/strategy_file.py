@@ -200,9 +200,10 @@ def path_for(strategies_dir, name) -> Path:
 
 
 def fingerprint(data: bytes) -> str:
-    """A short fingerprint of the file: the first 8 hex digits of its SHA-256, line endings counted as Unix ones
+    """A short fingerprint of the file: the first 16 hex digits of its SHA-256 (64 bits, so nobody can make another
+    file with the same fingerprint, which the go-live sentence relies on), line endings counted as Unix ones
     (a file copied through a Windows editor is the same file)."""
-    return hashlib.sha256(data.replace(b"\r\n", b"\n")).hexdigest()[:8]
+    return hashlib.sha256(data.replace(b"\r\n", b"\n")).hexdigest()[:16]
 
 
 def read_bytes(path) -> bytes:

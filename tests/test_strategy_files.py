@@ -513,7 +513,7 @@ def test_every_kind_has_plain_words_without_forecasts(signal):
 
 def test_the_fingerprint_names_the_file():
     a = spec_of(BASE).fingerprint
-    assert re.fullmatch(r"[0-9a-f]{8}", a)
+    assert re.fullmatch(r"[0-9a-f]{16}", a)  # 64 bits: no other file can be made to match (the go-live sentence)
     assert spec_of(BASE.replace("\n", "\r\n")).fingerprint == a  # the same file through a Windows editor
     assert spec_of(BASE + "# a comment\n").fingerprint != a  # any change is a new fingerprint
     assert spec_of(BASE).book_id == f"file:base#{a}"

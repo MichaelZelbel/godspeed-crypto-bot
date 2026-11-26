@@ -405,3 +405,44 @@ def test_a_godspeed_folder_reached_through_a_link_still_works(bed, tmp_path):
     out = chat_door.Door(bed.cfg, bed.config_path, (tmp_path / "godspeed-link", []), lambda: set(PERPS),
                          backtest=bed.fake_backtest)()
     assert out["answered"] == ["via.json"] and bed.answer("via")[1]["outcome"] == "done"
+
+
+def test_while_live_the_running_file_is_never_replaced_even_with_a_matching_fingerprint(tmp_path, monkeypatch):
+    bed = Bed(tmp_path, mode="live")
+    folder = tmp_path / "etc" / "strategies"
+    folder.mkdir(parents=True)
+    (folder / "momo.toml").write_text(MOMO, encoding="utf-8")
+    bed.config_path.write_text(bed.config_path.read_text() + 'strategy = "file:momo"\n', encoding="utf-8")
+    monkeypatch.setattr(strategy_file, "fingerprint", lambda data: "0" * 16)  # as if someone matched it
+    bed.strategy(text=MOMO.replace("[20, 60]", "[10, 30]"))
+    bed.request("swap", {"request": "check", "strategy": "momo"})
+    bed.door()()
+    text, result = bed.answer("swap")
+    assert text.startswith('Refused: Crypto Bot trades real money with "momo" now, and this file is a changed version')
+    assert (folder / "momo.toml").read_text(encoding="utf-8") == MOMO and result["outcome"] == "refused"
+    bed.strategy(text=MOMO)  # the very same file is fine: nothing changes
+    bed.request("same", {"request": "check", "strategy": "momo"})
+    bed.door()()
+    assert bed.answer("same")[1]["outcome"] == "done"
+
+
+@pytest.mark.skipif(not POSIX, reason="links and owners are POSIX")
+def test_a_link_of_another_user_never_leads_the_setup_into_roots_folders(tmp_path):
+    link = tmp_path / "godspeed"
+    os.symlink("/usr", link)  # a folder root owns
+    if os.geteuid() == 0:  # run as root, the link is made as if the assistant's user had planted it
+        os.lchown(link, 12345, 12345)
+    with pytest.raises(chat_door.Refused, match="reached through a link of another user"):
+        chat_door.setup((link, []), ROOT, "v")
+    assert not os.path.exists("/usr/crypto-bot")
+
+
+def test_an_existing_gitignore_gains_the_requests_rule_once(tmp_path):
+    mc = tmp_path / "mc"
+    (mc / "crypto-bot").mkdir(parents=True)
+    (mc / "crypto-bot" / ".gitignore").write_text("*.tmp\n", encoding="utf-8")
+    chat_door.setup((mc, []), ROOT, "v")
+    lines = (mc / "crypto-bot" / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert lines[0] == "*.tmp" and lines.count("requests/") == 1
+    chat_door.setup((mc, []), ROOT, "v")
+    assert (mc / "crypto-bot" / ".gitignore").read_text(encoding="utf-8").splitlines().count("requests/") == 1
