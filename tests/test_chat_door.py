@@ -395,3 +395,13 @@ def test_the_recipe_teaches_the_door_and_promises_nothing():
     for line in text.splitlines():
         if re.search(r"\b(guarantee|will (make|earn|gain|return)|expected return|(?<!take-)profit)\w*", line, re.I):
             assert line.lstrip().startswith(("- **Never", "**Never")), line
+
+
+@pytest.mark.skipif(not POSIX, reason="links are POSIX")
+def test_a_godspeed_folder_reached_through_a_link_still_works(bed, tmp_path):
+    os.symlink(bed.mc, tmp_path / "godspeed-link")
+    bed.strategy()
+    bed.request("via", {"request": "check", "strategy": "momo"})
+    out = chat_door.Door(bed.cfg, bed.config_path, (tmp_path / "godspeed-link", []), lambda: set(PERPS),
+                         backtest=bed.fake_backtest)()
+    assert out["answered"] == ["via.json"] and bed.answer("via")[1]["outcome"] == "done"

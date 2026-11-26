@@ -80,8 +80,11 @@ class SafeDir:
 
     @classmethod
     def open_base(cls, base) -> SafeDir:
-        """The trusted starting point (the Godspeed folder, or the Docker volume's own folder): itself not a link."""
-        base = Path(base)
+        """The trusted starting point (the Godspeed folder as configured, or the Docker volume's own folder), resolved
+        once: a Godspeed folder reached through a link is still the person's. Everything below it is walked without
+        following links and must belong to the same user, so a redirected base can only lead into that user's own
+        folders."""
+        base = Path(os.path.realpath(base))
         st = os.lstat(base)
         if stat.S_ISLNK(st.st_mode) or not stat.S_ISDIR(st.st_mode):
             raise Refused(f"{base} is not a plain folder.")
