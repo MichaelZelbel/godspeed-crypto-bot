@@ -244,7 +244,9 @@ def _is_int(v):
 
 
 def _is_num(v):
-    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return False
+    return abs(v) < 1e300 if isinstance(v, int) else math.isfinite(v)  # a huge integer is no setting either
 
 
 def _list_words(items, conj="and"):
@@ -734,7 +736,7 @@ def target_weights(history, spec: Spec, cands, d):
     ids, sig = [], []
     for i in cands:
         s = score(history, spec.signal, i, d)
-        if s is None:
+        if s is None or not math.isfinite(s):  # no number, never a position
             continue
         if spec.direction == "long-only":
             s = max(s, 0.0)

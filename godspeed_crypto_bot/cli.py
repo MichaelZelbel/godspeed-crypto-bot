@@ -139,6 +139,14 @@ def _check_file(cfg, path):
         return None, exc.problems
 
 
+def _readable_by_the_bot(path):
+    """The scheduled runs read the file as the bot's unprivileged user: it and its folder must be readable by others."""
+    try:
+        return bool(os.stat(path).st_mode & 0o004) and bool(os.stat(Path(path).parent).st_mode & 0o001)
+    except OSError:
+        return False
+
+
 def _strategy(args, cfg):
     spec, problems = _check_file(cfg, args.file)
     if args.json:
@@ -273,6 +281,9 @@ def main(argv=None):
                 target = strategy_file.path_for(now.strategies_dir, strategy_file.setting_name(wanted))
                 _spec, problems = _check_file(dataclasses.replace(now, network=args.set_network or now.network),
                                               target)
+                if not problems and not _readable_by_the_bot(target):
+                    problems = [f"The bot reads strategy files as its own user, so {target.name} and its folder must "
+                                f"be readable by everyone on this server (chmod 644 {target})."]
                 if problems:
                     print(f"{names.NAME}: the strategy file {target} cannot be used, so nothing was changed:",
                           file=sys.stderr)

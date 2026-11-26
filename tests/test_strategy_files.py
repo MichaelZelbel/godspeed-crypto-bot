@@ -10,6 +10,7 @@ import gzip
 import html
 import json
 import math
+import os
 import re
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -262,6 +263,21 @@ def test_a_file_asking_for_more_than_the_limits_is_refused():
     assert any("sizing.max_per_coin must be above 0 and at most 1" in p for p in found)
     fixed = file_with('kind = "fixed"\nweights = { BTC = 1, ETH = 0.8, SOL = 0.5 }', sizing="gross_exposure = 2.0")
     assert "The fixed weights add up to 2.3 of the money, more than sizing.gross_exposure (2)." in problems_of(fixed)
+
+
+def test_a_signal_that_is_not_a_number_never_becomes_a_position():
+    h = small_history()
+    h.rates[-3:, 0] = np.nan  # BTC's funding unknown on the last days: no number, not a bet
+    dec, _ = weights_for(file_with('kind = "funding"\ndays = 7'), h)
+    assert dec.trend_weights == pytest.approx({"ETH": 1 / 3}) and dec.trend_orders.get("BTC", 0.0) == 0.0
+
+
+def test_a_huge_number_in_the_file_is_refused_in_a_sentence():
+    huge = "9" * 400
+    found = problems_of(BASE.replace("gross_exposure = 1.0", f"gross_exposure = {huge}"))
+    assert any("sizing.gross_exposure must be above 0 and at most 2" in p for p in found)
+    assert any("no_trade_band must be a number" in p for p in problems_of(
+        BASE.replace('direction = "long-short"', f'direction = "long-short"\nno_trade_band = {huge}')))
 
 
 def test_the_engine_never_sizes_beyond_the_limits_even_for_a_spec_that_skipped_the_check():
@@ -762,6 +778,31 @@ def test_configure_checks_the_file_on_the_network_it_switches_to(tmp_path, monke
     assert cli.main(["--config", str(p), "configure", "--network", "testnet"]) == 1  # the file it runs is checked too
     assert "- BCH is not a perpetual on Hyperliquid." in capsys.readouterr().err
     assert config.load(p).network == "mainnet"
+
+
+def test_configure_refuses_a_file_the_bots_own_user_could_not_read(tmp_path, listed, monkeypatch, capsys):
+    p = write_config(tmp_path)
+    f = tmp_path / "strategies" / "base.toml"
+    f.write_text(BASE, encoding="utf-8")
+    monkeypatch.setattr(cli, "_readable_by_the_bot", lambda path: False)
+    assert cli.main(["--config", str(p), "configure", "--strategy", "file:base"]) == 1
+    assert "must be readable by everyone on this server (chmod 644" in capsys.readouterr().err
+    assert config.load(p).strategy == "mix"
+
+
+@pytest.mark.skipif(not hasattr(os, "geteuid"), reason="file modes are POSIX")
+def test_readable_by_the_bot_follows_the_file_modes(tmp_path):
+    f = tmp_path / "s.toml"
+    f.write_text("x", encoding="utf-8")
+    os.chmod(tmp_path, 0o755)
+    os.chmod(f, 0o644)
+    assert cli._readable_by_the_bot(f)
+    os.chmod(f, 0o600)
+    assert not cli._readable_by_the_bot(f)
+    os.chmod(f, 0o644)
+    os.chmod(tmp_path, 0o750)
+    assert not cli._readable_by_the_bot(f)
+    os.chmod(tmp_path, 0o755)
 
 
 def test_a_strategy_file_stays_on_paper_in_this_version(tmp_path, listed, cfg, capsys):
