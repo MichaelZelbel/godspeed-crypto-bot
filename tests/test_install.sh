@@ -11,6 +11,36 @@
 # and config; purge removes them; no key is made and nothing is switched to live.
 set -uo pipefail
 
+# Unattended, as the nightly scenario runs it (.github/workflows/install-scenario.yml): no terminal, so nothing can
+# wait for an answer, and a time limit, so nothing runs forever. Neither skips or weakens a check: a test that is
+# stopped by the limit fails, and the exit code says so. The script runs as its own process group so that the limit
+# stops everything it started (a hung download, a hung installer), not only the script.
+# (setsid --wait does not pass on a kill, so the watchdog leaves a marker file and the outer script exits 124.)
+if [ -z "${TEST_INSTALL_OWN_GROUP:-}" ] && command -v setsid >/dev/null 2>&1; then
+  mark="$(mktemp -u)"
+  TEST_INSTALL_OWN_GROUP=1 TEST_INSTALL_TIMEOUT_MARK="$mark" setsid --wait bash "$0" "$@"; code=$?
+  if [ -e "$mark" ]; then rm -f "$mark"; exit 124; fi
+  exit "$code"
+fi
+exec < /dev/null
+export DEBIAN_FRONTEND=noninteractive
+LIMIT_SECONDS="${TEST_INSTALL_LIMIT_SECONDS:-1800}"
+(
+  trap '' TERM
+  end=$((SECONDS + LIMIT_SECONDS))
+  while kill -0 $$ 2>/dev/null; do
+    if [ "$SECONDS" -ge "$end" ]; then
+      echo "FAIL  the test ran longer than $LIMIT_SECONDS seconds and was stopped"
+      [ -n "${TEST_INSTALL_TIMEOUT_MARK:-}" ] && : > "$TEST_INSTALL_TIMEOUT_MARK"
+      kill -TERM -- "-$$" 2>/dev/null
+      sleep 5
+      kill -KILL -- "-$$" 2>/dev/null
+      exit 0
+    fi
+    sleep 1
+  done
+) &
+
 SRC="${1:?usage: test_install.sh <repository .tar.gz>}"
 NAME="godspeed-crypto-bot"
 STATE="/var/lib/$NAME"; ETC="/etc/$NAME"; CODE="/opt/$NAME"; PAGE="/var/lib/$NAME-page"

@@ -1,0 +1,118 @@
+name: install-scenario
+# The scenario `fresh-server-install`: a stranger's install, tried again every night on a clean Linux machine.
+#
+# It builds a throwaway Ubuntu server with systemd (debootstrap, booted with systemd-nspawn), runs tests/test_install.sh
+# in it against the checked-out tree (install, update, uninstall, purge and every refusal), and also checks that the
+# install line in the README still points at downloads that exist. A failure opens one issue labelled
+# `scenario-failure` (or adds a comment to the one that is open) naming the step that failed.
+#
+# It is not part of the check `required` and holds no secret: everything only reads, except the one job that
+# opens or updates the failure issue.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: install-scenario
+  cancel-in-progress: false
+jobs:
+  fresh-server-install:
+    name: fresh-server-install
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      MACHINE: crypto-bot-scenario
+      ROOTFS: /var/lib/machines/crypto-bot-scenario
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: The install line in the README points at downloads that exist
+        run: |
+          set -euo pipefail
+          url="$(grep -oE 'https://raw\.githubusercontent\.com/[^ ]+/install\.sh' README.md | head -n 1)"
+          [ -n "$url" ] || { echo "The README has no install line."; exit 1; }
+          echo "The README's install line downloads: $url"
+          curl -fsSL --retry 3 "$url" -o "$RUNNER_TEMP/readme-install.sh" || { echo "The install line's download is gone: $url"; exit 1; }
+          bash -n "$RUNNER_TEMP/readme-install.sh"
+          tag="$(printf '%s' "$url" | sed -E 's#.*/(v[0-9][^/]*)/install\.sh#\1#')"
+          repo="${GITHUB_REPOSITORY}"
+          curl -fsSIL --retry 3 "https://codeload.github.com/$repo/tar.gz/refs/tags/$tag" -o /dev/null \
+            || { echo "The release the install line names ($tag) cannot be downloaded."; exit 1; }
+          echo "The release $tag downloads."
+      - name: Install the tools that build a throwaway server
+        run: |
+          sudo apt-get update -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends debootstrap systemd-container
+      - name: Build the throwaway server (Ubuntu 24.04 with systemd)
+        run: |
+          set -euo pipefail
+          sudo debootstrap --variant=minbase \
+            --include=systemd,systemd-sysv,dbus,bash,coreutils,util-linux,passwd,tar,gzip,curl,ca-certificates,sqlite3,findutils,sed,gawk,grep,iproute2 \
+            noble "$ROOTFS" http://azure.archive.ubuntu.com/ubuntu
+      - name: Put the repository and its install test into it
+        run: |
+          set -euo pipefail
+          git archive --format=tar.gz HEAD -o "$RUNNER_TEMP/source.tar.gz"
+          sudo install -d "$ROOTFS/root"
+          sudo cp "$RUNNER_TEMP/source.tar.gz" "$ROOTFS/root/source.tar.gz"
+          sudo cp tests/test_install.sh "$ROOTFS/root/test_install.sh"
+      - name: Start the throwaway server
+        run: |
+          set -euo pipefail
+          sudo systemd-nspawn --quiet --boot --directory="$ROOTFS" --machine="$MACHINE" \
+            --capability=CAP_SYS_ADMIN --resolv-conf=replace-host > "$RUNNER_TEMP/nspawn.log" 2>&1 &
+          for i in $(seq 1 90); do
+            if sudo systemd-run --machine="$MACHINE" --quiet --wait --pipe --collect true >/dev/null 2>&1; then break; fi
+            sleep 2
+          done
+          sudo systemd-run --machine="$MACHINE" --quiet --wait --pipe --collect true || { cat "$RUNNER_TEMP/nspawn.log"; echo "The throwaway server did not start."; exit 1; }
+          sudo systemd-run --machine="$MACHINE" --quiet --wait --pipe --collect systemctl is-system-running --wait || true
+      - name: Run tests/test_install.sh in it
+        run: |
+          set -o pipefail
+          sudo systemd-run --machine="$MACHINE" --quiet --wait --pipe --collect \
+            timeout 30m bash /root/test_install.sh /root/source.tar.gz 2>&1 | tee "$RUNNER_TEMP/test_install.log"
+      - name: Stop the throwaway server
+        if: always()
+        run: |
+          sudo machinectl terminate "$MACHINE" || true
+          sudo rm -rf "$ROOTFS"
+  report-failure:
+    name: report-failure
+    needs: fresh-server-install
+    if: failure()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - name: Open or update the one issue labelled scenario-failure
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_ID: ${{ github.run_id }}
+          REF: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          step="$(gh api "repos/$REPO/actions/runs/$RUN_ID/jobs" --jq '[.jobs[] | select(.name=="fresh-server-install") | .steps[] | select(.conclusion=="failure")][0].name')"
+          [ -n "$step" ] && [ "$step" != "null" ] || step="(a step that could not be named; the run is linked)"
+          title="The nightly install scenario failed"
+          body="The scenario \`fresh-server-install\` failed on \`$REF\` at the step: **$step**.
+
+          Run with its log: $RUN_URL"
+          gh label create scenario-failure --repo "$REPO" --color B60205 --description "A nightly scenario failed" 2>/dev/null || true
+          number="$(gh issue list --repo "$REPO" --label scenario-failure --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --repo "$REPO" --body "Failed again on \`$REF\` at the step: **$step**.
+
+          Run with its log: $RUN_URL"
+            echo "Updated issue #$number"
+          else
+            gh issue create --repo "$REPO" --label scenario-failure --title "$title" --body "$body"
+          fi

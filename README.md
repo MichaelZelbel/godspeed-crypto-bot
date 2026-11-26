@@ -210,7 +210,8 @@ times are UTC, with the server's own time zone beside them when that is not UTC 
 ## For developers
 
 `uv sync --locked`, `uv run pytest`, `uv run ruff check .`. The installer is tested end to end on a throwaway Linux
-machine with systemd by `tests/test_install.sh` (see its header). `tests/test_private_details.py` runs
+machine with systemd by `tests/test_install.sh` (see its header); the workflow `.github/workflows/install-scenario.yml` runs it
+on a clean Ubuntu server every night and on demand, and opens an issue labelled `scenario-failure` when it fails. `tests/test_private_details.py` runs
 `scripts/check-private-details.sh`, which fails on anything of a maintainer's own setup. Regenerating the parity
 fixture needs the private research engine and is not part of normal development.
 
