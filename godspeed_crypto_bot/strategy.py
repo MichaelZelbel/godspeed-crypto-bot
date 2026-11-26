@@ -28,7 +28,7 @@ ANNUAL_DAYS = 365
 BAND_TOLERANCE = 1e-12
 MIN_LISTING_DAYS = 120
 JUMP_LIMIT = 0.5
-TRANSFER_COST = 1e-4  # the lab's monthly 50/50 reset cost; live passes 0 (no money moves, see Books)
+TRANSFER_COST = 1e-4  # the research's monthly 50/50 reset cost; live passes 0 (no money moves, see Books)
 
 
 # --------------------------------------------------------------------------------------------
@@ -181,18 +181,18 @@ class StrategyConfig:
     trend: TrendConfig = TrendConfig(majors_only=True)  # S1-MAJ
     # S2-HL-2x (amendment A2): short leg at 2x, notional at most 2/3 of the carry book's equity.
     carry: CarryConfig = CarryConfig(mode="HL", margin_leverage=2.0, notional_fraction=2 / 3)
-    trend_coins: tuple = ("BTC", "ETH")  # the lab's MAJORS, in its order
-    carry_coins: tuple = ("BTC", "ETH", "SOL")  # the lab's HL_CARRY_SYMBOLS, in its order
+    trend_coins: tuple = ("BTC", "ETH")  # the research's MAJORS, in its order
+    carry_coins: tuple = ("BTC", "ETH", "SOL")  # the research's HL_CARRY_SYMBOLS, in its order
     min_listing_days: int = MIN_LISTING_DAYS
     reset_transfer_cost: float = TRANSFER_COST
-    strategy: str = "mix"  # which of the two books run: "mix" (both, the lab's S3-MAJ), "trend" or "carry" alone
+    strategy: str = "mix"  # which of the two books run: "mix" (both, the research's S3-MAJ), "trend" or "carry" alone
 
 
 S3_MAJ = StrategyConfig()
 
 STRATEGIES = ("mix", "trend", "carry")
 DEFAULT_STRATEGY = "mix"
-# What a person reads: "mix" is the lab's S3-MAJ, "trend" its S1-MAJ book alone, "carry" its S2-HL-2x book alone.
+# What a person reads: "mix" is the research's S3-MAJ, "trend" its S1-MAJ book alone, "carry" its S2-HL-2x book alone.
 STRATEGY_WORDS = {
     "mix": "half trend, half carry",
     "trend": "trend on BTC and ETH",
@@ -224,8 +224,8 @@ def split_equity(strategy, total):
 class History:
     """Daily wide arrays [day, coin] through the last closed day. Prices are NaN on days without a valid close.
 
-    `funding` is the daily funding rate per coin over (00:00, 24:00] UTC (the lab's
-    funding_rate_sum_through_close), positive meaning longs pay; NaN counts as 0, as in the lab.
+    `funding` is the daily funding rate per coin over (00:00, 24:00] UTC (the research's
+    funding_rate_sum_through_close), positive meaning longs pay; NaN counts as 0, as in the research.
     """
 
     def __init__(self, dates, coins, perp_open, perp_high, perp_low, perp_close, perp_traded,
@@ -366,7 +366,7 @@ class Decision:
     reset: bool
     trend_equity: float
     carry_equity: float
-    trend_orders: dict  # coin -> target perp quantity, only coins the band says to trade (the lab's semantics)
+    trend_orders: dict  # coin -> target perp quantity, only coins the band says to trade (the research's semantics)
     carry_orders: dict  # coin -> target spot quantity (perp = -target); 0 closes the pair
     carry_active: list
     trend_weights: dict
@@ -402,9 +402,9 @@ def _age_ok(history, day, i, min_days):
 
 
 def monthly_reset(books, day, transfer_cost):
-    """The lab's S3 rule: on the first day of a month after the first day, both books go back to 50/50.
+    """The research's S3 rule: on the first day of a month after the first day, both books go back to 50/50.
 
-    Operation order is the lab's (run(): transfer, then charge half the cost to each account).
+    Operation order is the research's (run(): transfer, then charge half the cost to each account).
     """
     if books.strategy != "mix" or books.start_day is None or not day > books.start_day or day.day != 1:
         return False
@@ -558,7 +558,7 @@ def decide(history: History, books: Books, equity: float | None = None, config: 
 
 
 def with_balance_prices(books: Books, prices: dict) -> Books:
-    """Set the balance price of each rebalanced carry coin (the lab: the perp fill price of the balance)."""
+    """Set the balance price of each rebalanced carry coin (the research: the perp fill price of the balance)."""
     out = books.copy()
     for c, px in prices.items():
         if c in out.carry.perp_q:

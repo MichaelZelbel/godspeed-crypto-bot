@@ -166,7 +166,7 @@ def main(argv=None):
     p.add_argument("--strategy", choices=("mix", "trend", "carry"))
     p.add_argument("--network", dest="set_network", choices=config.NETWORKS)
     p.add_argument("--agent-approved-on", dest="approved_on", metavar="YYYY-MM-DD",
-                   help="the day you approved the bot's API wallet on Hyperliquid (it expires 180 days later)")
+                   help="the day you approved the bot's API wallet on Hyperliquid, written YYYY-MM-DD")
     p = sub.add_parser("eligibility", help="root: record the answer to the country question")
     p.add_argument("--restricted", choices=("yes", "no"), required=True,
                    help="yes if you live in the US or Ontario, or are a resident or citizen of a sanctioned country")

@@ -69,6 +69,16 @@ def test_no_lab_in_the_commands_help(capsys):
 CODE_NAME = re.compile(r"\bS[0-9]-(?:MAJ|HL(?:-[0-9]x)?)\b")
 
 
+def test_the_program_and_its_notes_never_say_the_lab():
+    """Developers read the comments, and a stranger reads the source too: it says "the research", never "the lab"."""
+    found = []
+    for path in [ROOT / "AGENTS.md", ROOT / "pyproject.toml", *sorted((ROOT / "godspeed_crypto_bot").rglob("*.py"))]:
+        for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if LAB.search(line):
+                found.append(f"{path.relative_to(ROOT)}:{n}: {line.strip()[:100]}")
+    assert not found, "\n".join(found)
+
+
 def test_no_research_code_names_in_what_a_person_reads():
     """The books are told by what they do (trend, carry), never by the research's code names."""
     found = []
@@ -98,10 +108,12 @@ def test_the_installer_prints_sentences_and_keeps_data_in_its_log():
 def test_the_installers_own_sentences_are_plain():
     """Every sentence the installer says or dies with has no braces, quoted keys or setting names."""
     text = (ROOT / "install.sh").read_text(encoding="utf-8")
-    sentences = re.findall(r'\b(?:say|die) "([^"]*)"', text)
-    assert sentences
+    sentences = re.findall(r'\b(?:say|die) "((?:[^"\\]|\\.)*)"', text)
+    assert len(sentences) > 20
     for s in sentences:
-        assert not re.search(r'[{}]|"\w+":|\bagent_approved_on\b', s), s
+        plain = re.sub(r"\$\{[^}]*\}", "", s)  # a variable's value is not a data block
+        assert not re.search(r'[{}]|\\"\w+\\":|\bagent_approved_on\b', plain), s
+    assert re.search(r"[{}]", 'echo "{ \\"restricted\\": true }"')  # the check would see a data block
 
 
 def test_the_expiry_problem_names_the_command_and_the_command_sets_it(tmp_path, capsys):
@@ -114,5 +126,7 @@ def test_the_expiry_problem_names_the_command_and_the_command_sets_it(tmp_path, 
     assert cli.main(["--config", str(p), "configure", "--agent-approved-on", "2026-11-20"]) == 0
     capsys.readouterr()
     assert tomllib.loads(p.read_text())["agent_approved_on"] == "2026-11-20"
-    code = cli.main(["--config", str(p), "configure", "--agent-approved-on", "tomorrow"])
-    assert code != 0 and tomllib.loads(p.read_text())["agent_approved_on"] == "2026-11-20"  # a bad day changes nothing
+    for bad in ("tomorrow", "20261121", "2026-13-40"):
+        code = cli.main(["--config", str(p), "configure", "--agent-approved-on", bad])
+        assert code != 0, bad
+        assert tomllib.loads(p.read_text())["agent_approved_on"] == "2026-11-20"  # a bad day changes nothing
