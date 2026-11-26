@@ -802,10 +802,22 @@ def _decide_own(history, book, day, spec, due):
         kept, kept_weight = {}, 0.0
         for i in sorted(in_universe | set(held)):
             price = history.perp_close[d, i]
-            if not np.isfinite(price):
-                continue
             q = book.q.get(history.coins[i], 0.0)
             w = targets.get(i, 0.0)
+            if not np.isfinite(price):
+                # No valid close yesterday (a quiet coin): left as it is, as the built-in book does, but valued at its
+                # last valid close, so it still counts toward the limits and is cut back when it is beyond them.
+                seen = np.flatnonzero(np.isfinite(history.perp_close[: d + 1, i]))
+                if not q or not len(seen):
+                    continue
+                price = float(history.perp_close[seen[-1], i])
+                cw = q * price / equity
+                if abs(cw) > cap + LIMIT_DRIFT:
+                    orders[i] = w * equity / price
+                else:
+                    kept[i] = (w, price)
+                    kept_weight += abs(cw)
+                continue
             cw = q * price / equity if q else 0.0
             if needs_trade(w, cw, i in in_universe, spec.no_trade_band) or abs(cw) > cap + LIMIT_DRIFT:
                 orders[i] = w * equity / price  # the band never keeps a coin above its limit by more than the drift

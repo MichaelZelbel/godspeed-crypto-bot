@@ -286,6 +286,28 @@ def test_a_wide_band_never_keeps_a_coin_or_the_book_above_its_limits():
     assert {c: q * price[c] / 3000.0 for c, q in orders.items()} == pytest.approx({"BTC": 0.3, "ETH": 0.3, "SOL": 0.3})
 
 
+def test_a_coin_without_a_valid_close_is_still_cut_back_when_beyond_its_limits():
+    n = 200
+    full = small_history(n)
+    traded = full.raw["perp_traded"].copy()
+    traded[-1, 0] = False  # BTC did not trade yesterday: no valid close
+    raw = full.raw
+    h = History(full.dates, full.coins, raw["perp_open"], raw["perp_high"], raw["perp_low"], raw["perp_close"], traded,
+                raw["spot_open"], raw["spot_high"], raw["spot_low"], raw["spot_close"], raw["spot_traded"],
+                raw["funding"], full.first_trade, full.has_spot)
+    assert not np.isfinite(h.perp_close[-1, 0])
+    spec = spec_of(file_with('kind = "momentum"\nlookbacks = [5, 10]'))
+    last_valid = h.perp_close[-2, 0]
+
+    def books(weight):
+        return Books(TrendBookState(3000.0, {"BTC": weight * 3000.0 / last_valid}), CarryBookState(0.0),
+                     date(2026, 1, 1), spec.book_id)
+
+    assert "BTC" not in strategy_file.decide(h, books(0.3), spec).trend_orders  # within its limits: left as it is
+    orders = strategy_file.decide(h, books(3.0), spec).trend_orders  # three times the money: cut back
+    assert orders["BTC"] == 0.0  # to its target: no signal without a valid close, so nothing
+
+
 def test_a_number_too_long_to_read_is_refused_in_a_sentence():
     found = problems_of(BASE.replace("gross_exposure = 1.0", "gross_exposure = " + "9" * 5000))
     assert len(found) == 1 and found[0].startswith("The file is not valid TOML:")
