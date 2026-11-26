@@ -37,11 +37,11 @@ Godspeed reminders. Nobody else holds your money or your keys. Crypto Bot takes 
 On a Linux server that runs Godspeed Mission Control, with systemd, as root. A Windows or Mac computer cannot run
 it: the bot decides every day at 00:02 UTC and checks every five minutes, so it needs a server that stays on.
 
-    curl -fsSL https://raw.githubusercontent.com/MichaelZelbel/godspeed-crypto-bot/v0.1.0/install.sh | bash -s -- --godspeed <your Godspeed Mission Control folder>
+    curl -fsSL https://raw.githubusercontent.com/MichaelZelbel/godspeed-crypto-bot/v0.1.1/install.sh | bash -s -- --godspeed <your Godspeed Mission Control folder>
 
 The Godspeed folder is the one that holds `.godspeed/`: `/opt/godspeed-mission-control` on a server set up with
 Godspeed's one-line server installer, or the `godspeed` folder in the home of the account Godspeed's assistant runs as
-on a Linux install of Godspeed itself. The line names the published release (`v0.1.0`), never the newest code. It asks once whether you live in the
+on a Linux install of Godspeed itself. The line names the published release (`v0.1.1`), never the newest code. It asks once whether you live in the
 United States or Ontario, or are a resident or citizen of a sanctioned country (your assistant can pass
 `--restricted no`); if you do, it stops. Then it installs `uv` if it is missing, the program into
 `/opt/godspeed-crypto-bot`, a system user, the timers and a configuration in **paper** mode (`network = "mainnet"`,
@@ -51,6 +51,7 @@ It makes no key and never switches to real money.
 - It refuses, in one sentence and changing nothing: not Linux, no systemd, not root, no Godspeed at the folder, or a
   Godspeed older than 2.0.0-beta.6 (the first release with the deadline door on both server installs).
 - **Running it again is the update**: the configuration, key, records, HALT file and page stay.
+- **What changed in 0.1.1:** on a native Godspeed server the bot no longer restarts Godspeed's web address.
 - **Remove it:** `godspeed-crypto-bot uninstall` stops and removes the timers, command, page address, program and
   user, and keeps the records and settings; `--purge` removes those too. It never touches the exchange: positions
   stay open unless you ran `flatten --yes` first (it refuses while the account holds positions, unless `--yes`), and

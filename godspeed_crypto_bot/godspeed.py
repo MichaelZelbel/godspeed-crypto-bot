@@ -17,10 +17,12 @@ out. The relay never trades and never touches the key. Every outside call is inj
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import re
+import shlex
 import subprocess
 import time
 import urllib.error
@@ -40,6 +42,7 @@ SERVER_NOTEBOOK_SITE = "/etc/caddy/godspeed-notebook.caddy"
 DOCKER_FRONT = f"{NAME}-https"
 DOCKER_PORT = 48445
 ADDRESS_FILE = "page-address"
+PAGE_TRIED = "page-tried.json"  # an attempt Caddy did not take: the same one is never made again (no restart loop)
 DEADLINE_SYNCED = "deadline-synced.json"
 STATUS_FILE = "relay-status.json"
 CHANNEL_FILE = "channel.json"
@@ -398,6 +401,36 @@ def _write_keep(path, text):
     os.replace(tmp, path)
 
 
+EXEC_PREFIXES = "-@:+!"  # what systemd allows before an ExecStart= path (systemd.service, "Command lines")
+
+
+def exec_argv(exec_line):
+    """An ExecStart= value as systemd splits it, or [] when it cannot be read: quotes and backslash escapes
+    honoured (Godspeed's installer writes the Caddy path in double quotes), and the special prefixes that may
+    stand before the path (-, @, :, +, !, !!) taken off. With @ the second word is only the name the program
+    is shown under, so it is dropped too, and what is left is the path and its real arguments."""
+    line = str(exec_line or "").strip()
+    flags = ""
+    while line[:1] and line[:1] in EXEC_PREFIXES:
+        flags, line = flags + line[0], line[1:]
+    try:
+        argv = shlex.split(line)
+    except ValueError:  # an unbalanced quote: better no answer than a wrong program
+        return []
+    if "@" in flags and len(argv) >= 2:
+        argv = [argv[0], *argv[2:]]
+    return argv
+
+
+def _config_arg(argv):
+    for i, a in enumerate(argv):
+        if a == "--config" and i + 1 < len(argv):
+            return argv[i + 1]
+        if a.startswith("--config="):
+            return a.split("=", 1)[1]
+    return None
+
+
 def native_front(root="/", run=sh):
     """The Caddy that holds the notebook's address, as {'kind', 'unit', 'caddyfile', 'text', 'binary'}, or None:
     Godspeed's own (godspeed-https.service) first, then the server's (caddy.service)."""
@@ -408,12 +441,11 @@ def native_front(root="/", run=sh):
     unit = _read(at(f"/etc/systemd/system/{OWN_UNIT}"))
     if unit:
         exec_line = (re.search(r"^ExecStart=(.*)$", unit, re.M) or [None, ""])[1]
-        m = re.search(r'--config\s+(?:"((?:[^"\\]|\\.)*)"|(\S+))', exec_line)
-        caddyfile = (m.group(1) or m.group(2)) if m else None
+        argv = exec_argv(exec_line)
+        caddyfile = _config_arg(argv)
         text = _read(at(caddyfile)) if caddyfile else None
         if text is not None:
-            return {"kind": "own", "unit": OWN_UNIT, "caddyfile": caddyfile, "text": text,
-                    "binary": exec_line.split()[0] if exec_line.split() else "caddy"}
+            return {"kind": "own", "unit": OWN_UNIT, "caddyfile": caddyfile, "text": text, "binary": argv[0]}
     if run(["systemctl", "is-active", "--quiet", "caddy"])[0] == 0:
         text = _read(at(SERVER_NOTEBOOK_SITE))
         if text is not None:
@@ -422,8 +454,20 @@ def native_front(root="/", run=sh):
     return None
 
 
-def publish_native(front, root="/", run=sh):
-    """Write the path file and let Caddy take it. Returns (address or None, why)."""
+def _attempt_key(front, want):
+    """What one attempt to give the page its address depends on: the file and the Caddy that would read it. A
+    Godspeed update that changes its Caddy changes the key, and the page's address is tried once more then."""
+    parts = (want, front["text"], front["binary"], front["caddyfile"], front["unit"])
+    return hashlib.sha256("\0".join(str(p) for p in parts).encode()).hexdigest()
+
+
+def publish_native(front, root="/", run=sh, tried=None):
+    """Write the path file and let Caddy take it. Returns (address or None, why).
+
+    Godspeed's web server serves everything else on the server too, so it is restarted only when Caddy's own
+    check accepted the new file, and at most once more to put back what it served before. An attempt that
+    failed is kept in `tried` (a file in the relay's folder) and the same attempt is never made again, so no
+    failure can make the relay restart Godspeed's web address over and over."""
     if "/paths/*.caddy" not in front["text"]:
         return None, ("Godspeed's web address does not read add-on files yet; update Godspeed Mission Control "
                       f"and {DISPLAY_NAME} will give its page an address")
@@ -437,20 +481,57 @@ def publish_native(front, root="/", run=sh):
     address = f"https://{host}{':' + port if port and port != '443' else ''}/{NAME}/"
     before = _read(target)
     if before == want:
+        if tried is not None:
+            Path(tried).unlink(missing_ok=True)
         return address, ""
-    _write_keep(target, want)
-    caddyfile = Path(root) / front["caddyfile"].lstrip("/")
-    ok = run([front["binary"], "validate", "--config", str(caddyfile), "--adapter", "caddyfile"])[0] == 0
-    restart = ["systemctl", "restart", front["unit"]] if front["kind"] == "own" else ["systemctl", "reload", "caddy"]
-    if ok:
-        ok = run(restart)[0] == 0
-    if not ok:  # take the file out again, and make Caddy read what it read before
+    key = _attempt_key(front, want)
+    if tried is not None:
+        last = _read(tried)
+        try:
+            last = json.loads(last) if last else None
+        except ValueError:
+            last = None
+        if isinstance(last, dict) and last.get("key") == key:
+            return None, (f"{last.get('why') or 'Caddy did not take it'}; it is tried again when Godspeed's web "
+                          "address changes or the install line runs again")
+
+    def put_back():
         if before is None:
             target.unlink(missing_ok=True)
         else:
             _write_keep(target, before)
+
+    def note(why):
+        """Keep the attempt, so the same one is never made again. False when the note could not be written."""
+        if tried is None:
+            return True
+        try:
+            _write_keep(Path(tried), json.dumps({"key": key, "why": why, "at": time.time()}))
+            return True
+        except OSError as exc:
+            log.warning("the page attempt could not be noted: %s", exc)
+            return False
+
+    _write_keep(target, want)
+    caddyfile = Path(root) / front["caddyfile"].lstrip("/")
+    if run([front["binary"], "validate", "--config", str(caddyfile), "--adapter", "caddyfile"])[0] != 0:
+        put_back()  # Caddy never read the file: taking it out again is all, and nothing is restarted
+        why = "Caddy's own check did not accept the page's address, so nothing was changed"
+        note(why)  # without the note the check runs again later, which restarts nothing either
+        return None, why
+    # Noted before the restart, so a relay stopped halfway, or a failed restart, can never lead to the same
+    # restart again; the note goes once Caddy has taken the file. No note, no restart.
+    why = "Caddy did not take the page's address, so it serves what it served before"
+    if not note(why):
+        put_back()
+        return None, "the relay could not write in its own folder, so Godspeed's web address was not restarted"
+    restart = ["systemctl", "restart", front["unit"]] if front["kind"] == "own" else ["systemctl", "reload", "caddy"]
+    if run(restart)[0] != 0:  # take the file out again, and make Caddy read what it read before, once
+        put_back()
         run(restart)
-        return None, "Caddy did not take the page's address, so it serves what it served before"
+        return None, why
+    if tried is not None:
+        Path(tried).unlink(missing_ok=True)
     return address, ""
 
 
@@ -518,13 +599,13 @@ def publish_docker(gs, run=sh, config_dir=None):
     return address, ""
 
 
-def publish_page(gs, run=sh, root="/"):
+def publish_page(gs, run=sh, root="/", tried=None):
     if gs.docker:
         return publish_docker(gs, run)
     front = native_front(root, run)
     if front is None:
         return None, "no Caddy holds Godspeed's web address on this server, so the page has no address"
-    return publish_native(front, root, run)
+    return publish_native(front, root, run, tried)
 
 
 def remove_page(gs, run=sh, root="/"):
@@ -637,7 +718,7 @@ class Relay:
                 return _read(target).strip()
         except OSError:
             pass
-        address, why = publish_page(self.gs, self.run, self.root)
+        address, why = publish_page(self.gs, self.run, self.root, tried=self.cfg.relay_path / PAGE_TRIED)
         if address:
             _write_keep(target, address + "\n")
         else:

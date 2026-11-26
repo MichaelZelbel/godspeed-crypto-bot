@@ -320,9 +320,174 @@ def test_a_caddy_that_refuses_the_file_gets_it_taken_out_again(tmp_path):
         "srv1.example.com {\n\timport /etc/caddy/godspeed-addons/paths/*.caddy\n\treverse_proxy 127.0.0.1:47833\n}\n")
     front = {"kind": "caddy", "unit": "caddy.service", "caddyfile": "/etc/caddy/Caddyfile", "binary": "caddy",
              "text": (caddy / "godspeed-notebook.caddy").read_text()}
-    address, why = godspeed.publish_native(front, str(tmp_path), lambda *a, **k: (1, "", "invalid"))
-    assert address is None and "serves what it served before" in why
+    calls = []
+
+    def run(argv, timeout=120, stdin=None):
+        calls.append(argv)
+        return 1, "", "invalid"
+
+    address, why = godspeed.publish_native(front, str(tmp_path), run)
+    assert address is None and "nothing was changed" in why
     assert not (caddy / "godspeed-addons/paths" / f"{NAME}.caddy").exists()
+    assert calls == [["caddy", "validate", "--config", str(caddy / "Caddyfile"), "--adapter", "caddyfile"]]  # no reload
+
+
+GODSPEED_CADDY = "/root/godspeed/.godspeed/integrated-runtime/runtime/caddy-2.11.4/caddy"
+GODSPEED_CADDYFILE = "/root/godspeed/.godspeed/integrated-runtime/https/Caddyfile"
+NOTEBOOK_SITE = ("srv1.example.com {\n\timport /etc/caddy/godspeed-addons/paths/*.caddy\n"
+                 "\treverse_proxy 127.0.0.1:47833\n}\n\nimport /etc/caddy/godspeed-addons/*.caddy\n")
+
+
+@pytest.mark.parametrize("line, argv", [
+    # What Godspeed's own installer writes: the path in double quotes.
+    (f'"{GODSPEED_CADDY}" run --config "{GODSPEED_CADDYFILE}" --adapter caddyfile',
+     [GODSPEED_CADDY, "run", "--config", GODSPEED_CADDYFILE, "--adapter", "caddyfile"]),
+    ("/usr/bin/caddy run --config /etc/caddy/Caddyfile --adapter caddyfile",
+     ["/usr/bin/caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]),
+    ('-"/opt/my caddy/caddy" run --config="/etc/my caddy/Caddyfile"',
+     ["/opt/my caddy/caddy", "run", "--config=/etc/my caddy/Caddyfile"]),
+    ("@/usr/bin/caddy caddy run --config /etc/caddy/Caddyfile",  # with @ the second word is only a shown name
+     ["/usr/bin/caddy", "run", "--config", "/etc/caddy/Caddyfile"]),
+    ("!!/usr/bin/caddy run --config /etc/caddy/Caddyfile", ["/usr/bin/caddy", "run", "--config", "/etc/caddy/Caddyfile"]),
+    ("+:/usr/bin/caddy run", ["/usr/bin/caddy", "run"]),
+    ('"/usr/bin/caddy run --config /etc/caddy/Caddyfile', []),  # an unbalanced quote: no program rather than a wrong one
+    ("", []),
+])
+def test_the_exec_line_is_split_as_systemd_splits_it(line, argv):
+    assert godspeed.exec_argv(line) == argv
+
+
+def own_unit(tmp_path, exec_start, caddyfile):
+    unit = tmp_path / "etc/systemd/system" / godspeed.OWN_UNIT
+    unit.parent.mkdir(parents=True, exist_ok=True)
+    unit.write_text(f"[Unit]\nDescription=Godspeed Mission Control web address\n[Service]\nUser=root\n"
+                    f"ExecStart={exec_start}\nRestart=on-failure\n")
+    site = tmp_path / caddyfile.lstrip("/")
+    site.parent.mkdir(parents=True, exist_ok=True)
+    site.write_text(NOTEBOOK_SITE)
+
+
+@pytest.mark.parametrize("quoted", [True, False])
+def test_godspeeds_own_caddy_is_found_with_a_quoted_or_unquoted_path(tmp_path, quoted):
+    q = '"' if quoted else ""
+    own_unit(tmp_path, f"{q}{GODSPEED_CADDY}{q} run --config {q}{GODSPEED_CADDYFILE}{q} --adapter caddyfile",
+             GODSPEED_CADDYFILE)
+    calls = []
+
+    def run(argv, timeout=120, stdin=None):
+        calls.append(argv)
+        return 0, "", ""
+
+    front = godspeed.native_front(str(tmp_path), run)
+    assert front["kind"] == "own" and front["binary"] == GODSPEED_CADDY and front["caddyfile"] == GODSPEED_CADDYFILE
+    address, why = godspeed.publish_native(front, str(tmp_path), run)
+    assert (address, why) == (f"https://srv1.example.com/{NAME}/", "")
+    assert calls == [[GODSPEED_CADDY, "validate", "--config", str(tmp_path / GODSPEED_CADDYFILE.lstrip("/")),
+                      "--adapter", "caddyfile"],
+                     ["systemctl", "restart", godspeed.OWN_UNIT]]
+
+
+def test_a_failing_check_restarts_nothing_and_is_not_tried_again(tmp_path):
+    """The 0.1.0 fault: the check could not even start (exit 127), and every relay restarted Godspeed's web address."""
+    own_unit(tmp_path, f'"{GODSPEED_CADDY}" run --config "{GODSPEED_CADDYFILE}" --adapter caddyfile', GODSPEED_CADDYFILE)
+    tried = tmp_path / "relay" / godspeed.PAGE_TRIED
+    calls = []
+
+    def run(argv, timeout=120, stdin=None):
+        calls.append(argv)
+        return (127, "", "No such file or directory") if argv[1:2] == ["validate"] else (0, "", "")
+
+    front = godspeed.native_front(str(tmp_path), run)
+    address, why = godspeed.publish_native(front, str(tmp_path), run, tried)
+    assert address is None and "nothing was changed" in why
+    assert [c for c in calls if c[0] == "systemctl"] == [] and len(calls) == 1
+    assert not (tmp_path / "etc/caddy/godspeed-addons/paths" / f"{NAME}.caddy").exists()
+    calls.clear()
+    for _ in range(5):  # the same attempt is never made again: no check, no restart
+        address, why = godspeed.publish_native(front, str(tmp_path), run, tried)
+        assert address is None and "install line runs again" in why
+    assert calls == []
+    tried.unlink()  # what the install line does: one more attempt
+    godspeed.publish_native(front, str(tmp_path), run, tried)
+    assert len(calls) == 1 and calls[0][1] == "validate"
+
+
+def test_a_failed_restart_puts_back_once_and_never_loops(tmp_path):
+    own_unit(tmp_path, f"{GODSPEED_CADDY} run --config {GODSPEED_CADDYFILE} --adapter caddyfile", GODSPEED_CADDYFILE)
+    tried = tmp_path / "relay" / godspeed.PAGE_TRIED
+    calls = []
+
+    def run(argv, timeout=120, stdin=None):
+        calls.append(argv)
+        return (1, "", "failed") if argv[:2] == ["systemctl", "restart"] else (0, "", "")
+
+    front = godspeed.native_front(str(tmp_path), run)
+    address, why = godspeed.publish_native(front, str(tmp_path), run, tried)
+    assert address is None and "serves what it served before" in why
+    assert [c for c in calls if c[0] == "systemctl"] == [["systemctl", "restart", godspeed.OWN_UNIT]] * 2
+    calls.clear()
+    assert godspeed.publish_native(front, str(tmp_path), run, tried)[0] is None and calls == []
+    # A Godspeed update that changes its Caddy is a new attempt, and it works now.
+    (tmp_path / GODSPEED_CADDYFILE.lstrip("/")).write_text(NOTEBOOK_SITE + "# updated\n")
+    address, why = godspeed.publish_native(godspeed.native_front(str(tmp_path), lambda *a, **k: (0, "", "")),
+                                           str(tmp_path), lambda *a, **k: (0, "", ""), tried)
+    assert address == f"https://srv1.example.com/{NAME}/" and not tried.exists()
+
+
+def test_the_attempt_is_noted_before_the_restart_and_a_relay_stopped_halfway_does_not_restart_again(tmp_path):
+    own_unit(tmp_path, f'"{GODSPEED_CADDY}" run --config "{GODSPEED_CADDYFILE}" --adapter caddyfile', GODSPEED_CADDYFILE)
+    tried = tmp_path / "relay" / godspeed.PAGE_TRIED
+    restarts = []
+
+    def stopped_at_the_restart(argv, timeout=120, stdin=None):
+        if argv[:2] == ["systemctl", "restart"]:
+            restarts.append(tried.exists())  # the note is on disk before the restart is asked for
+            raise KeyboardInterrupt("the relay is stopped here")
+        return 0, "", ""
+
+    front = godspeed.native_front(str(tmp_path), stopped_at_the_restart)
+    with pytest.raises(KeyboardInterrupt):
+        godspeed.publish_native(front, str(tmp_path), stopped_at_the_restart, tried)
+    assert restarts == [True]
+    (tmp_path / "etc/caddy/godspeed-addons/paths" / f"{NAME}.caddy").unlink()  # as if put back before it stopped
+    calls = []
+    godspeed.publish_native(front, str(tmp_path), lambda argv, **k: calls.append(argv) or (0, "", ""), tried)
+    assert calls == []
+
+
+def test_no_restart_when_the_relay_cannot_write_its_note(tmp_path):
+    own_unit(tmp_path, f"{GODSPEED_CADDY} run --config {GODSPEED_CADDYFILE}", GODSPEED_CADDYFILE)
+    blocked = tmp_path / "relay-is-a-file"
+    blocked.write_text("")
+    calls = []
+
+    def run(argv, timeout=120, stdin=None):
+        calls.append(argv)
+        return 0, "", ""
+
+    front = godspeed.native_front(str(tmp_path), run)
+    address, why = godspeed.publish_native(front, str(tmp_path), run, blocked / godspeed.PAGE_TRIED)
+    assert address is None and "was not restarted" in why
+    assert [c for c in calls if c[0] == "systemctl"] == []
+    assert not (tmp_path / "etc/caddy/godspeed-addons/paths" / f"{NAME}.caddy").exists()
+
+
+def test_the_relay_never_restarts_godspeeds_web_address_in_a_loop(cfg, tmp_path, monkeypatch):
+    own_unit(tmp_path, f'"{GODSPEED_CADDY}" run --config "{GODSPEED_CADDYFILE}" --adapter caddyfile', GODSPEED_CADDYFILE)
+    page_dir = tmp_path / "page"
+    page_dir.mkdir()
+    monkeypatch.setattr(godspeed, "PAGE_DIR", str(page_dir))
+    calls = []
+
+    def run(argv, timeout=120, stdin=None):
+        calls.append(argv)
+        return (1, "", "invalid") if argv[1:2] == ["validate"] else (0, "", "")
+
+    for _ in range(10):  # ten minutes of the relay's timer
+        out = godspeed.Relay(cfg, godspeed.Godspeed(str(tmp_path)), run=run, root=str(tmp_path), tell=lambda t: True)()
+        assert out["page"] is None and any("the page has no address" in p for p in out["problems"])
+    assert [c for c in calls if c[1:2] == ["validate"]] == [calls[0]]
+    assert [c for c in calls if c[:2] == ["systemctl", "restart"]] == []
 
 
 def test_an_old_godspeed_without_add_on_paths_gets_a_plain_sentence(tmp_path):
