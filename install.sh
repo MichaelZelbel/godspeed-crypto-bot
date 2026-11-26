@@ -199,7 +199,7 @@ main() {
   # running the install line again is the one way to try it again.
   rm -f "$RELAY/page-tried.json"
 
-  install -d -m 0755 "$CODE" "$ETC" "$RELAY"
+  install -d -m 0755 "$CODE" "$ETC" "$ETC/strategies" "$RELAY"
   install -d -m 0700 -o "$NAME" -g "$NAME" "$STATE"
   install -d -m 0755 -o "$NAME" -g "$NAME" "$PAGE"
   install -d -m 0700 /etc/credstore.encrypted

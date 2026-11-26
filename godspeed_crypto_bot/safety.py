@@ -24,6 +24,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from . import godspeed, names, outbox
 from .execution import Executor, Leg, is_agent_failure  # noqa: F401 - re-exported
+from .venue.base import coins_of
 
 log = logging.getLogger(__name__)
 AGENT_MAX_DAYS = 180
@@ -139,8 +140,11 @@ def expiry_problems(cfg, store, venue, now):
 # ---- 2. holdings: the venue against the books as executed
 
 
-def snapshot_holdings(store, venue, acct, source, coins=("BTC", "ETH", "SOL")):
+def snapshot_holdings(store, venue, acct, source, coins=None):
+    """What the account holds now, for every coin the market data covers (the built-in coins, a strategy file's
+    coins, and anything the books still hold): the next comparison's expectation."""
     insts = venue.market.instruments()
+    coins = coins or coins_of(insts)
     snap = {}
     for coin in coins:
         si = insts.get((coin, "spot"))
@@ -156,9 +160,10 @@ def mark_holdings_pending(store, source):
     store.put("expected_holdings", exp)
 
 
-def compare_holdings(expected, acct, insts, mids, min_usd, coins=("BTC", "ETH", "SOL")):
+def compare_holdings(expected, acct, insts, mids, min_usd, coins=None):
     """[(coin, kind, detail)]: kind 'one_legged' (a carry short shrank, spot intact) or 'unexplained'."""
     out = []
+    coins = coins or coins_of(insts)
     for coin in coins:
         e = expected.get(coin, {"perp": 0.0, "spot": 0.0})
         pi, si = insts.get((coin, "perp")), insts.get((coin, "spot"))

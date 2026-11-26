@@ -21,19 +21,19 @@ import time
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 
-from . import godspeed, outbox, page, records, safety
+from . import godspeed, outbox, page, records, safety, strategy_file
 from .data import DataNotReady, build_history, day_ms
-from .execution import Executor, Leg, plan_orders
+from .execution import Executor, Leg, Plan, plan_orders
 from .keys import LiveNotAllowed, live_problems, load_agent_key
 from .ledger import Shadow, ShadowState
 from .names import DISPLAY_NAME
-from .strategy import STRATEGY_WORDS, Books, config_for, decide
-from .venue.base import TWO_BALANCE_MODES
+from .strategy import config_for, decide
+from .venue.base import TWO_BALANCE_MODES, coins_of
 from .venue.hyperliquid import HyperliquidMarketData, HyperliquidVenue
 from .venue.simulated import SimulatedVenue
 
 log = logging.getLogger(__name__)
-COINS = ("BTC", "ETH", "SOL")
+COINS = ("BTC", "ETH", "SOL")  # the built-in strategies' coins: always read, so a switch can close what they hold
 FINAL = ("complete", "halted", "skipped")
 TWO_WALLET_MODES = TWO_BALANCE_MODES  # transfers between spot and perp only here; Unified has one USDC balance
 
@@ -45,8 +45,29 @@ def utcnow():
 # ---- construction
 
 
+def coins_for(cfg, store=None, spec=None):
+    """The coins a run reads and the checks watch: the built-in coins, the strategy file's coins, and every coin the
+    books or the last holdings snapshot still hold, so that a switch of strategy can close it."""
+    out = list(COINS)
+    if spec is None and strategy_file.is_file_setting(cfg.strategy):
+        try:
+            spec = strategy_file.load_for(cfg)
+        except strategy_file.StrategyFileError:
+            spec = None
+    if spec is not None:
+        out += spec.coins
+    if store is not None:
+        _day, state = store.books_before("9999-12-31")
+        books = (state or {}).get("books") or {}
+        for book, key in (("trend", "q"), ("carry", "perp_q"), ("carry", "spot_q")):
+            out += [c for c, q in ((books.get(book) or {}).get(key) or {}).items() if q]
+        held = (store.get("expected_holdings") or {}).get("coins") or {}
+        out += [c for c, legs in held.items() if isinstance(legs, dict) and any(legs.get(k) for k in ("perp", "spot"))]
+    return tuple(dict.fromkeys(c for c in out if isinstance(c, str)))
+
+
 def build_venue(cfg, store, market=None, before_confirmation=False):
-    market = market or HyperliquidMarketData(cfg.network, cfg.spot_tokens, COINS)
+    market = market or HyperliquidMarketData(cfg.network, cfg.spot_tokens, coins_for(cfg, store))
     if cfg.mode == "dry-run":
         return SimulatedVenue(market, store, "model", start_usdc=cfg.capital_cap_usdc, leverage=cfg.limits.leverage)
     if cfg.mode == "paper":
@@ -167,7 +188,7 @@ def flatten(cfg, venue, store, notifier, reason, day=None):
     insts = venue.market.instruments()
     mids = venue.market.mids()
     groups = {}
-    for coin in COINS:
+    for coin in coins_of(insts):
         pi, si = insts.get((coin, "perp")), insts.get((coin, "spot"))
         group = []
         if pi and acct.perp_size(coin):
@@ -195,7 +216,7 @@ def flatten(cfg, venue, store, notifier, reason, day=None):
     safety.snapshot_holdings(store, venue, after, "after flatten")
     mids = venue.market.mids()
     residual = {}
-    for coin in COINS:
+    for coin in coins_of(insts):
         pi, si = insts.get((coin, "perp")), insts.get((coin, "spot"))
         if pi and abs(after.perp_size(coin)) * mids[pi.name] >= cfg.limits.min_order_usdc:
             residual[f"perp:{coin}"] = after.perp_size(coin)
@@ -232,6 +253,9 @@ def _settle_missed(shadow, snap, through: date):
     d = last + timedelta(days=1)
     while d <= through:
         close = {c: snap.close_perp[c][d] for c in snap.close_perp if d in snap.close_perp[c]}
+        for c, days in snap.close_perp.items():  # a day without a candle (a quiet coin): marked at its last close
+            if c not in close and any(k < d for k in days):
+                close[c] = days[max(k for k in days if k < d)]
         spot_close = {c: snap.close_spot[c][d] for c in snap.close_spot if d in snap.close_spot[c]}
         funding = {c: snap.funding.get(c, {}).get(d, 0.0) for c in snap.close_perp}
         shadow.settle(d, close, spot_close, funding)
@@ -276,7 +300,12 @@ def _halt_run(store, run_id, reason, summary=None):
 
 
 def _daily(cfg, venue, store, notifier, now, day, run_id, row, market_snapshot):
-    history, snap = market_snapshot or build_history(venue.market, day, COINS, cfg.history_days)
+    spec = strategy_file.load_for(cfg)  # None for a built-in; a file the bot refuses stops the run with its sentence
+    if market_snapshot is None:
+        days = max(cfg.history_days, spec.history_days()) if spec else cfg.history_days
+        market_snapshot = build_history(venue.market, day, coins_for(cfg, store, spec), days,
+                                        funding_days=spec.funding_days() if spec else 12, required=COINS)
+    history, snap = market_snapshot
     insts = venue.market.instruments()
     sync_records(cfg, venue, store, now)
     checks = {}
@@ -315,7 +344,8 @@ def _daily(cfg, venue, store, notifier, now, day, run_id, row, market_snapshot):
                      "capital": min(value, cfg.capital_cap_usdc)}
             store.put("start", start)
         if shadow is None:
-            shadow = Shadow(ShadowState(Books.fresh(start["capital"], day, cfg.strategy), last_settled=str(day - timedelta(days=1))))
+            shadow = Shadow(ShadowState(strategy_file.fresh_books(start["capital"], day, cfg.strategy, spec),
+                                        last_settled=str(day - timedelta(days=1))))
         equity = min(value, cfg.capital_cap_usdc)
         dd = drawdown_state(cfg, store, venue, acct, value)
         yday = day - timedelta(days=1)
@@ -329,7 +359,13 @@ def _daily(cfg, venue, store, notifier, now, day, run_id, row, market_snapshot):
             return _halt_run(store, run_id, "drawdown halt; flattened")
         store.update_run(run_id, pre_state={"shadow": shadow.s.to_dict(), "equity": equity, "account_value": value})
 
-    decision = decide(history, shadow.s.books, equity=equity, config=config_for(cfg.strategy))
+    if spec is None:
+        decision = decide(history, shadow.s.books, equity=equity, config=config_for(cfg.strategy))
+        trades_today = True
+    else:
+        # A weekly or monthly file strategy decides and trades only on its days; the account is left as it is between.
+        trades_today = strategy_file.rebalance_due(spec, shadow.s.books, day)
+        decision = strategy_file.decide(history, shadow.s.books, spec, equity=equity, day=day)
     decision_doc = decision.to_dict()
     decision_doc["warnings"] = snap.warnings
     store.update_run(run_id, status="decided", decision=decision_doc)
@@ -342,7 +378,11 @@ def _daily(cfg, venue, store, notifier, now, day, run_id, row, market_snapshot):
     acct = venue.account()
     targets, notes = safety.restrict_targets(decision.account_targets(), acct, insts, peg, bool(block), gaps)
     mids = venue.market.mids()
-    plan = plan_orders(targets, acct, insts, mids, cfg, COINS)
+    if trades_today:
+        plan = plan_orders(targets, acct, insts, mids, cfg, coins_of(insts))
+    else:
+        plan = Plan([], [], [])
+        notes = [*notes, f"not a {spec.rebalance} trading day for {spec.name}: nothing traded"]
     ex = Executor(cfg, venue, store, day, run_id)
     for coin, market, size, mid, reason in plan.skipped:
         store.add_order(run_id, day, "rebalance", coin, market, "buy" if size > 0 else "sell", abs(size), mid,
@@ -543,7 +583,7 @@ def _shrink_pairs(cfg, venue, store, acct, day):
     insts = venue.market.instruments()
     mids = venue.market.mids()
     pairs = []
-    for coin in COINS:
+    for coin in coins_of(insts):
         pi, si = insts.get((coin, "perp")), insts.get((coin, "spot"))
         if not (pi and si):
             continue
@@ -556,7 +596,7 @@ def _shrink_pairs(cfg, venue, store, acct, day):
     for k in range(1, int(round(1 / g.shrink_step)) + 1):
         f = k * g.shrink_step
         notional, value = 0.0, acct.perp_value
-        for coin in COINS:
+        for coin in coins_of(insts):
             pi = insts.get((coin, "perp"))
             if pi is None:
                 continue
@@ -598,7 +638,7 @@ def status(cfg, store):
     summary = json.loads(latest[0]["summary"]) if latest and latest[0]["summary"] else None
     return {
         "mode": cfg.mode, "network": cfg.network, "strategy": cfg.strategy,
-        "strategy_in_words": STRATEGY_WORDS[cfg.strategy], "halted": halted(cfg),
+        "strategy_in_words": strategy_file.words(cfg), "halted": halted(cfg),
         "halt_reason": cfg.halt_path.read_text(encoding="utf-8").strip() if halted(cfg) else None,
         "capital_cap_usdc": cfg.capital_cap_usdc, "start": store.get("start"),
         "entry_block": store.get("entry_block") or {}, "agent": store.get("agent"),
@@ -616,4 +656,5 @@ def status(cfg, store):
     }
 
 
-__all__ = ["build_venue", "check_deadline", "day_ms", "flatten", "guard", "open_store", "run_daily", "status"]
+__all__ = ["build_venue", "check_deadline", "coins_for", "day_ms", "flatten", "guard", "open_store", "run_daily",
+           "status"]

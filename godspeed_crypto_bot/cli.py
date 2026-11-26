@@ -2,7 +2,7 @@
 
 Scheduled (systemd): run-daily 00:02 UTC, guard every 5 minutes, check-deadline 00:45 UTC, report weekly,
 terms-check weekly. By hand: status, flatten, halt, resume, keygen, preflight, go-live, configure, account-mode,
-terms-accept, export, page, test-alert, and on testnet only selftest. run-daily, flatten, halt and resume refresh the owner's
+terms-accept, export, page, test-alert, strategy check, and on testnet only selftest. run-daily, flatten, halt and resume refresh the owner's
 page afterwards, and so does a guard run that traded, moved money or alerted (page.py).
 """
 
@@ -32,6 +32,7 @@ from . import (
     report,
     safety,
     selftest,
+    strategy_file,
     terms,
     uninstall,
 )
@@ -111,6 +112,53 @@ def _context(args):
     return cfg, store, Notifier(cfg, store)
 
 
+def _strategy_choice(value):
+    """argparse type for --strategy: a built-in or file:<name>."""
+    try:
+        return strategy_file.check_setting(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from None
+
+
+def _listed_perps(cfg):
+    """The perpetuals Hyperliquid lists now, for checking a strategy file's coins (the tests replace this)."""
+    return HyperliquidMarketData(cfg.network).listed_perps()
+
+
+def _check_file(cfg, path):
+    """(spec, problems) for a strategy file, its coins checked against what Hyperliquid lists now."""
+    try:
+        perps = _listed_perps(cfg)
+    except Exception as exc:  # noqa: BLE001 - the coins cannot be checked: nothing is accepted
+        return None, [f"Could not reach Hyperliquid to check that the coins exist ({type(exc).__name__}); nothing "
+                      "was checked. Try again in a minute."]
+    try:
+        return strategy_file.load(path, perps=perps), []
+    except strategy_file.StrategyFileError as exc:
+        return None, exc.problems
+
+
+def _strategy(args, cfg):
+    spec, problems = _check_file(cfg, args.file)
+    if args.json:
+        _print({"ok": spec is not None, "problems": problems,
+                **({"name": spec.name, "setting": spec.setting, "fingerprint": spec.fingerprint,
+                    "summary": strategy_file.summary(spec), "explanation": strategy_file.explain(spec)}
+                   if spec else {})})
+        return 0 if spec else 1
+    if spec is None:
+        print("The bot cannot use this strategy file:")
+        for line in problems:
+            print(f"- {line}")
+        return 1
+    print(f'Strategy "{spec.name}", as the bot understood it:')
+    print(strategy_file.explain(spec))
+    print(f"Fingerprint: {spec.fingerprint} (it changes whenever the file changes).")
+    target = strategy_file.path_for(cfg.strategies_dir, spec.name)
+    print(f"To run it on paper: put it at {target} and run {names.NAME} configure --strategy {spec.setting}")
+    return 0
+
+
 def _relay(cfg):
     gs = godspeed.find(cfg.godspeed_dir)
     if gs is None:
@@ -163,10 +211,15 @@ def main(argv=None):
     p = sub.add_parser("configure", help="root: set the account address, the most the bot may use, the strategy")
     p.add_argument("--master", help="your Hyperliquid account address (the wallet address is the account)")
     p.add_argument("--cap", type=float, help="the most the bot may use, in USDC (live has no default)")
-    p.add_argument("--strategy", choices=("mix", "trend", "carry"))
+    p.add_argument("--strategy", type=_strategy_choice, metavar="mix|trend|carry|file:<name>",
+                   help="a built-in strategy, or your own strategy file in the strategies folder")
     p.add_argument("--network", dest="set_network", choices=config.NETWORKS)
     p.add_argument("--agent-approved-on", dest="approved_on", metavar="YYYY-MM-DD",
                    help="the day you approved the bot's API wallet on Hyperliquid, written YYYY-MM-DD")
+    p = sub.add_parser("strategy", help="your own strategy: check a strategy file and say what the bot understood")
+    p.add_argument("action", choices=("check",))
+    p.add_argument("file", help="the strategy file (TOML)")
+    p.add_argument("--json", action="store_true", help="print the result as JSON")
     p = sub.add_parser("eligibility", help="root: record the answer to the country question")
     p.add_argument("--restricted", choices=("yes", "no"), required=True,
                    help="yes if you live in the US or Ontario, or are a resident or citizen of a sanctioned country")
@@ -205,15 +258,31 @@ def main(argv=None):
                   f"never more than {cfg.capital_cap_usdc:g} USDC of yours. Stop it any time with: "
                   f"{names.NAME} halt")
             return 0
+        if args.command == "strategy":
+            return _strategy(args, config.load(args.config, network=args.network))
         if args.command == "configure":
             path = config.config_path(args.config)
+            if args.strategy and strategy_file.is_file_setting(args.strategy):
+                now = config.load(path)
+                if now.mode == "live" and args.strategy != now.strategy:
+                    print(f"{names.NAME}: {keys.FILE_NOT_LIVE}; nothing was changed.", file=sys.stderr)
+                    return 1
+                target = strategy_file.path_for(now.strategies_dir, strategy_file.setting_name(args.strategy))
+                _spec, problems = _check_file(now, target)
+                if problems:
+                    print(f"{names.NAME}: the strategy file {target} cannot be used, so nothing was changed:",
+                          file=sys.stderr)
+                    for line in problems:
+                        print(f"- {line}", file=sys.stderr)
+                    return 1
             for key, value in (("master_address", args.master), ("capital_cap_usdc", args.cap),
                                ("strategy", args.strategy), ("network", args.set_network),
                                ("agent_approved_on", args.approved_on)):
                 if value is not None:
                     configure.set_value(path, key, value)
             cfg = config.load(path)
-            _print({"network": cfg.network, "strategy": cfg.strategy, "master_address": cfg.master_address,
+            _print({"network": cfg.network, "strategy": cfg.strategy,
+                    "strategy_in_words": strategy_file.words(cfg), "master_address": cfg.master_address,
                     "capital_cap_usdc": cfg.capital_cap_usdc if cfg.cap_named else None, "mode": cfg.mode})
             return 0
         if args.command == "eligibility":
@@ -372,6 +441,10 @@ def _dispatch(args, cfg, store, notifier, rec=None):
     if cmd == "run-daily":
         try:
             out = bot.run_daily(cfg, venue, store, notifier, allow_late=args.allow_late)
+        except strategy_file.StrategyFileError as exc:  # systemd must not retry: the file needs fixing first
+            rec["outcome"] = {"status": "strategy file refused", "note": str(exc)}
+            print(f"{names.NAME}: the strategy file cannot be used: {exc}", file=sys.stderr)
+            return EXIT_CONFIG
         except DataNotReady as exc:
             rec["outcome"] = {"status": "data not ready", "note": str(exc)}
             print(f"data not ready: {exc}", file=sys.stderr)

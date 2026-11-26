@@ -130,7 +130,9 @@ class Shadow:
                     self._fund(name, f"perp:{c}", pq, close[c], funding.get(c, 0.0))
         # The running cost is split over the books that run: half each for the mix, all of it for a single book.
         books = self.s.books
-        names = {"trend": ("trend",), "carry": ("carry",)}.get(books.strategy, ("trend", "carry"))
+        # A strategy file runs in the trend book alone (strategy_file.py), like the built-in trend choice.
+        key = "trend" if str(books.strategy).startswith("file:") else books.strategy
+        names = {"trend": ("trend",), "carry": ("carry",)}.get(key, ("trend", "carry"))
         # A single choice owns the whole equity: what is left in the other book (the cost of closing it after
         # a change of choice) joins the running book once that one holds nothing.
         if len(names) == 1:

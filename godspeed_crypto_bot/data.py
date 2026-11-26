@@ -56,12 +56,20 @@ class MarketSnapshot:
     warnings: list = field(default_factory=list)
 
 
-def build_history(market, day: date, coins=("BTC", "ETH", "SOL"), history_days=400, funding_days=12):
+def build_history(market, day: date, coins=("BTC", "ETH", "SOL"), history_days=400, funding_days=12, required=None):
     """History through ``day - 1`` and the decision day's opens.
 
     Refuses (DataNotReady) unless yesterday's perp candle for every coin has closed, and every carry coin
     has funding settlements on each of the last seven days.
+
+    ``required``: the coins that must be there (default: all of ``coins``). Any other coin (one a strategy file names)
+    that the venue does not list is left out with a warning, and missing funding settlements for it are only a
+    warning, so a coin that is delisted or new never stops the built-in coins' run.
     """
+    required = tuple(coins) if required is None else tuple(required)
+    insts_all = market.instruments()
+    skipped = [c for c in coins if c not in required and insts_all.get((c, "perp")) is None]
+    coins = tuple(c for c in coins if c not in skipped)
     end = day - timedelta(days=1)
     start = end - timedelta(days=history_days - 1)
     insts = market.instruments()
@@ -75,6 +83,7 @@ def build_history(market, day: date, coins=("BTC", "ETH", "SOL"), history_days=4
     spot_traded = np.zeros(shape, dtype=bool)
     first_trade, has_spot = [], []
     snap = MarketSnapshot(day)
+    snap.warnings.extend(f"{c} perp is not listed on {market.network}; left out" for c in skipped)
     for j, coin in enumerate(coins):
         perp = insts.get((coin, "perp"))
         if perp is None:
@@ -82,8 +91,10 @@ def build_history(market, day: date, coins=("BTC", "ETH", "SOL"), history_days=4
         candles = market.daily_candles(perp, start, day)
         closed = {c.day: c for c in candles if c.day <= end}
         last = closed.get(end)
-        if last is None or not last.closed:
+        if last is not None and not last.closed or last is None and coin in required:
             raise DataNotReady(f"{coin} perp candle for {end} is not closed yet")
+        if last is None:  # a strategy file's coin without a candle that day: no valid price, no trade
+            snap.warnings.append(f"{coin} has no daily candle for {end}")
         for c in closed.values():
             k = (c.day - start).days
             arrays["perp_open"][k, j], arrays["perp_high"][k, j] = c.open, c.high
@@ -92,8 +103,11 @@ def build_history(market, day: date, coins=("BTC", "ETH", "SOL"), history_days=4
         today = [c for c in candles if c.day == day]
         if today:
             snap.open_perp[coin] = today[0].open
+        elif coin not in required and closed:  # a quiet coin with no trade yet today: its last close is its open
+            snap.open_perp[coin] = closed[max(closed)].close
+            snap.warnings.append(f"{coin} has no candle for {day} yet; its last close stands in for the open")
         snap.close_perp[coin] = {c.day: c.close for c in closed.values()}
-        first_trade.append(np.datetime64(min(closed), "D"))
+        first_trade.append(np.datetime64(min(closed) if closed else end, "D"))
         spot = insts.get((coin, "spot"))
         has_spot.append(spot is not None)
         if spot is not None:
@@ -117,7 +131,7 @@ def build_history(market, day: date, coins=("BTC", "ETH", "SOL"), history_days=4
         for k in range(7):
             d = end - timedelta(days=k)
             cnt = daily.get(d, (0.0, 0))[1]
-            if cnt == 0:
+            if cnt == 0 and coin in required:
                 raise DataNotReady(f"{coin} has no funding settlements on {d}")
             if cnt != 24:
                 snap.warnings.append(f"{coin} had {cnt} funding settlements on {d}, not 24")

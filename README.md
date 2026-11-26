@@ -24,6 +24,11 @@ Godspeed reminders. Nobody else holds your money or your keys. Crypto Bot takes 
   Risk limits, the cap, the guard and the live gate are the same for all three. Changing the setting takes effect
   at the next daily run, as a rebalance to the new targets. `status`, the page and the weekly report name the
   strategy in plain words.
+- **Or your own strategy**, as a file of settings (`strategy = "file:<name>"`): which perpetuals, a signal from a
+  fixed menu (momentum, moving-average cross, mean reversion, funding, fixed weights or an average of these), the
+  direction, the sizing and how often it trades. `strategy check <file>` refuses anything outside the menu, one
+  sentence per problem, or says in plain words what it understood. It is settings, never code. In this version it
+  runs on paper and in dry-run. The format and three examples: [docs/strategy-files.md](docs/strategy-files.md).
 - **Paper first.** The installer starts in paper mode: the bot trades a pretend account against the live order
   book and books the real hourly funding, and nothing is signed or sent.
 - **Real money only by your own typed sentence.** `go-live` prints one sentence (the network, your account, the
@@ -100,7 +105,8 @@ Real money is the last step, and the only one the bot cannot do for you. In orde
 On the server everything goes through `/usr/local/sbin/godspeed-crypto-bot`:
 
     godspeed-crypto-bot status | report [--weekly] | preflight | test-alert
-    godspeed-crypto-bot configure [--master ADDRESS] [--cap USDC] [--strategy mix|trend|carry]
+    godspeed-crypto-bot configure [--master ADDRESS] [--cap USDC] [--strategy mix|trend|carry|file:<name>]
+    godspeed-crypto-bot strategy check <file> [--json]
     godspeed-crypto-bot keygen --network mainnet|testnet [--replace] | go-live | account-mode
     godspeed-crypto-bot halt [--reason R] | resume | flatten --yes [--reason R]
     godspeed-crypto-bot run-daily [--allow-late] | guard | check-deadline | terms-check | terms-accept
@@ -194,7 +200,8 @@ front of the server, open port 48445 there, as you did for 80 and 443. It is nev
 Godspeed sign-in it sends you to Godspeed's own sign-in, and after signing in you open the page's address again. Its
 times are UTC, with the server's own time zone beside them when that is not UTC (`timedatectl set-timezone` changes it).
 
-**Where things live.** Code `/opt/godspeed-crypto-bot`; configuration `/etc/godspeed-crypto-bot/config.toml`; state
+**Where things live.** Code `/opt/godspeed-crypto-bot`; configuration `/etc/godspeed-crypto-bot/config.toml`; your strategy files
+`/etc/godspeed-crypto-bot/strategies/`; state
 `/var/lib/godspeed-crypto-bot`; logs `journalctl -u 'godspeed-crypto-bot-*'`. The names come from
 `godspeed_crypto_bot/names.py` and one variable in the installer.
 

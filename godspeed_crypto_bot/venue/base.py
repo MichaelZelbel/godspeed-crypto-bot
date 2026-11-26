@@ -41,6 +41,11 @@ class Instrument:
         return round(float(f"{px:.5g}"), self.px_decimals)
 
 
+def coins_of(instruments) -> tuple:
+    """Every coin an instruments map covers (perp or spot), in its order."""
+    return tuple(dict.fromkeys(coin for coin, _market in instruments))
+
+
 @dataclass
 class Candle:
     day: date

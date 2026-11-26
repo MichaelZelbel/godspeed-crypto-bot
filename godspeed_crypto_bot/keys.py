@@ -20,7 +20,7 @@ from pathlib import Path
 
 import eth_account
 
-from . import eligibility
+from . import eligibility, strategy_file
 from .config import ADDRESS, Config
 from .names import DISPLAY_NAME, NAME
 
@@ -51,6 +51,10 @@ def load_agent_key(cfg: Config) -> str:
     return key
 
 
+FILE_NOT_LIVE = ("a strategy file runs on paper and in dry-run only in this version: choose mix, trend or carry "
+                 f"for live trading ({NAME} configure --strategy mix)")
+
+
 def confirmation_text(cfg: Config, agent_address: str) -> str:
     """The exact sentence the confirmation file must hold: one line the person types themselves. The bot never
     writes this file."""
@@ -69,6 +73,8 @@ def live_problems(cfg: Config, before_confirmation=False):
     problems = []
     if cfg.mode != "live":
         problems.append(f"config mode is {cfg.mode!r}, not 'live'")
+    if strategy_file.is_file_setting(cfg.strategy):
+        problems.append(FILE_NOT_LIVE)
     if not ADDRESS.match(cfg.master_address or ""):
         problems.append("master_address is not set")
     if not cfg.cap_named:

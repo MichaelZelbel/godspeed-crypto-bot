@@ -10,6 +10,7 @@ mode = "dry-run"
 godspeed_dir = ""            # the Godspeed Mission Control folder; the installer sets it (alerts and the page need it)
 network = "mainnet"          # or "testnet" (api.hyperliquid-testnet.xyz), same code path
 strategy = "mix"             # "mix" (half trend, half carry), "trend" (BTC and ETH) or "carry" (BTC, ETH, SOL)
+                             # or "file:<name>": your own strategy file, strategies/<name>.toml in this folder
 master_address = ""          # your Hyperliquid account (public address)
 capital_cap_usdc = 2000      # strategy equity = min(account value, this); money above it is ignored
 agent_approved_on = ""       # YYYY-MM-DD the API wallet was approved (only used if Hyperliquid gives no expiry); set it with: godspeed-crypto-bot configure --agent-approved-on YYYY-MM-DD

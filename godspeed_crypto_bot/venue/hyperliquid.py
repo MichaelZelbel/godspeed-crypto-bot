@@ -99,6 +99,11 @@ class HyperliquidMarketData(MarketData):
             self._meta = self._retry(self.info.meta)
         return self._meta
 
+    def listed_perps(self):
+        """The perpetuals Hyperliquid lists now (its main exchange, delisted ones left out): what a strategy file's
+        coins are checked against."""
+        return {u["name"] for u in self.meta()["universe"] if not u.get("isDelisted")}
+
     def spot_meta(self):
         if self._spot_meta is None:
             self._spot_meta = self._retry(self.info.spot_meta)

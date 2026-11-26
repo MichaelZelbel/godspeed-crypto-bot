@@ -13,9 +13,9 @@ import json
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+from . import strategy_file
 from .ledger import MODEL_SLIPPAGE, PERP_FEE, SPOT_FEE
 from .names import DISPLAY_NAME
-from .strategy import STRATEGY_WORDS
 
 FEE = {"perp": PERP_FEE, "spot": SPOT_FEE}
 
@@ -106,7 +106,7 @@ def markdown(cfg, doc_week, doc_all, today):
     lines = [
         f"# {DISPLAY_NAME}: week to {today}",
         "",
-        f"Mode {cfg.mode}, network {cfg.network}, strategy: {STRATEGY_WORDS[cfg.strategy]}, capital cap {cfg.capital_cap_usdc:,.0f} USDC.",
+        f"Mode {cfg.mode}, network {cfg.network}, strategy: {strategy_file.words(cfg)}, capital cap {cfg.capital_cap_usdc:,.0f} USDC.",
         "The backtest column is the shadow ledger: the backtest's assumptions (fill at the daily open, its fees",
         "and slippage tiers, daily funding times the close) applied to the same days and the same decisions.",
         "",
