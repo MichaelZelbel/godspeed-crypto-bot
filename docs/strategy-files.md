@@ -34,6 +34,7 @@ Every file has these settings at the top:
   falling it holds nothing) or `"short-only"` (only bets on falls).
 - `no_trade_band` (optional, 0.02 if left out): a share of the money from 0 to 0.5. While a coin's position is within
   this share of the money of its target, the bot leaves it alone, unless the bet turns around or ends. It saves fees.
+  It never keeps a coin above `max_per_coin`, or all coins above `gross_exposure`, by more than 2% of the money a coin.
 
 Then two tables: `[signal]`, what it looks at, and `[sizing]`, how much it puts on each coin.
 

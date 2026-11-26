@@ -59,6 +59,10 @@ MAX_DAYS = 365  # the bot reads 400 days of history
 MAX_FUNDING_DAYS = 30
 MAX_PARTS = 5
 DEFAULT_BAND = 0.02
+# How far a position the no-trade band keeps may sit above the strategy's limits: the built-in trend book's own band,
+# which is as far as it ever drifts. A wider band never keeps a coin beyond max_per_coin, or the book beyond
+# gross_exposure, by more than this (per coin); for the built-in trend book written as a file it never acts.
+LIMIT_DRIFT = 0.02
 DEFAULT_GROSS = 1.0
 DEFAULT_PER_COIN = 1.0
 DEFAULT_COVARIANCE_DAYS = 90
@@ -269,7 +273,7 @@ def check_bytes(data: bytes, file_name: str | None = None, perps=None) -> Spec:
         raise StrategyFileError(["The file is not plain text (UTF-8)."]) from None
     try:
         doc = tomllib.loads(text)
-    except tomllib.TOMLDecodeError as exc:
+    except ValueError as exc:  # TOMLDecodeError, or a number too long for Python to read
         raise StrategyFileError([f"The file is not valid TOML: {exc}."]) from None
     problems = []
     say = problems.append
@@ -619,7 +623,7 @@ def explain(spec: Spec) -> str:
                    f"days: a coin that swings half as much gets twice the share, with {limits}.")
     if spec.no_trade_band > 0:
         out.append(f"It leaves a coin alone while its position is within {_pct(spec.no_trade_band)} of the money of "
-                   "its target, unless the bet turns around or ends.")
+                   "its target, unless the bet turns around or ends, or the position has grown past its limits.")
     out.append(f"A coin is traded once it has {MIN_LISTING_DAYS} days of daily prices on Hyperliquid. These are bets "
                "on the price through perpetual contracts; it never buys the coins themselves.")
     return " ".join(out)
@@ -794,6 +798,8 @@ def _decide_own(history, book, day, spec, due):
     elif due:
         targets = target_weights(history, spec, cands, d)
         weights = {history.coins[i]: w for i, w in targets.items()}
+        cap, gross = min(spec.max_per_coin, MAX_PER_COIN), min(spec.gross_exposure, MAX_GROSS)
+        kept, kept_weight = {}, 0.0
         for i in sorted(in_universe | set(held)):
             price = history.perp_close[d, i]
             if not np.isfinite(price):
@@ -801,7 +807,13 @@ def _decide_own(history, book, day, spec, due):
             q = book.q.get(history.coins[i], 0.0)
             w = targets.get(i, 0.0)
             cw = q * price / equity if q else 0.0
-            if needs_trade(w, cw, i in in_universe, spec.no_trade_band):
+            if needs_trade(w, cw, i in in_universe, spec.no_trade_band) or abs(cw) > cap + LIMIT_DRIFT:
+                orders[i] = w * equity / price  # the band never keeps a coin above its limit by more than the drift
+            else:
+                kept[i] = (w, price)
+                kept_weight += abs(cw)
+        if kept and kept_weight + sum(abs(targets.get(i, 0.0)) for i in orders) > gross + LIMIT_DRIFT * len(spec.coins):
+            for i, (w, price) in kept.items():  # nor the whole book above its gross exposure: all to their targets
                 orders[i] = w * equity / price
     return {history.coins[i]: v for i, v in orders.items()}, weights
 

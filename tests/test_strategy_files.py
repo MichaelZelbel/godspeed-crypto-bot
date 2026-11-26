@@ -265,6 +265,32 @@ def test_a_file_asking_for_more_than_the_limits_is_refused():
     assert "The fixed weights add up to 2.3 of the money, more than sizing.gross_exposure (2)." in problems_of(fixed)
 
 
+def test_a_wide_band_never_keeps_a_coin_or_the_book_above_its_limits():
+    h = small_history()
+    price = {c: h.perp_close[-1, h.index[c]] for c in h.coins}
+    text = file_with('kind = "fixed"\nweights = { BTC = 0.3, ETH = 0.3, SOL = 0.3 }', band=0.5,
+                     sizing="gross_exposure = 1.0\nmax_per_coin = 0.5")
+    spec = spec_of(text)
+
+    def held(weights):
+        return Books(TrendBookState(3000.0, {c: w * 3000.0 / price[c] for c, w in weights.items()}), CarryBookState(0.0),
+                     date(2026, 1, 1), spec.book_id)
+
+    # each within the band of its 30% target and within the per-coin cap: kept
+    assert strategy_file.decide(h, held({"BTC": 0.35, "ETH": 0.3, "SOL": 0.3}), spec).trend_orders == {}
+    # BTC at 70%: inside the band of 30%, but above its 50% cap by more than the drift: cut back
+    orders = strategy_file.decide(h, held({"BTC": 0.7, "ETH": 0.3, "SOL": 0.3}), spec).trend_orders
+    assert orders == {"BTC": pytest.approx(0.3 * 3000.0 / price["BTC"])}
+    # all three at 50%: each inside the band and the cap, but 150% in all against a gross exposure of 100%
+    orders = strategy_file.decide(h, held({"BTC": 0.5, "ETH": 0.5, "SOL": 0.5}), spec).trend_orders
+    assert {c: q * price[c] / 3000.0 for c, q in orders.items()} == pytest.approx({"BTC": 0.3, "ETH": 0.3, "SOL": 0.3})
+
+
+def test_a_number_too_long_to_read_is_refused_in_a_sentence():
+    found = problems_of(BASE.replace("gross_exposure = 1.0", "gross_exposure = " + "9" * 5000))
+    assert len(found) == 1 and found[0].startswith("The file is not valid TOML:")
+
+
 def test_a_signal_that_is_not_a_number_never_becomes_a_position():
     h = small_history()
     h.rates[-3:, 0] = np.nan  # BTC's funding unknown on the last days: no number, not a bet
