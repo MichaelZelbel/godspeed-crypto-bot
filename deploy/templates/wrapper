@@ -4,14 +4,15 @@
 # Every command runs as the unprivileged bot user, in a transient systemd unit with the same hardening
 # and the same imported credentials (the exchange key from /etc/credstore.encrypted) as the scheduled runs.
 # keygen, relay, uninstall, go-live, configure and eligibility run as root: they write the encrypted key, reach
-# Godspeed, remove the program, write the confirmation file you typed, and edit the configuration.
+# Godspeed, remove the program, write the confirmation file you typed, and edit the configuration. strategy (check)
+# runs as root too, so it can read a strategy file in your home folder; it only reads that file as settings.
 set -eu
 CODE=@CODE@
 STATE=@STATE@
 PY="$CODE/.venv/bin/python"
 for a in "$@"; do
   case "$a" in
-    keygen|relay|uninstall|go-live|configure|eligibility)
+    keygen|relay|uninstall|go-live|configure|eligibility|strategy)
       exec env PYTHONPATH="$CODE" "$PY" -m godspeed_crypto_bot.cli "$@" ;;
   esac
 done

@@ -64,17 +64,22 @@ class SimulatedVenue(Venue):
         lev = self._inst(coin, "perp").max_leverage or 20
         return 1.0 / (2 * lev)
 
+    def _listed(self, coin, mids):
+        inst = self.market.instruments().get((coin, "perp"))
+        return inst is not None and inst.name in mids
+
     def account(self):
         mids = self._mid_map(fresh=True)
         positions, upnl, maint, margin = {}, 0.0, 0.0, 0.0
         for coin, p in self.st["positions"].items():
             if not p["size"]:
                 continue
-            m = mids[self._inst(coin, "perp").name]
+            listed = self._listed(coin, mids)  # a coin the exchange no longer lists: held at its entry price
+            m = mids[self._inst(coin, "perp").name] if listed else p["entry"]
             pnl = p["size"] * (m - p["entry"])
             notional = p["size"] * m
             upnl += pnl
-            maint += abs(notional) * self._maint_rate(coin)
+            maint += abs(notional) * self._maint_rate(coin) if listed else 0.0
             margin += abs(notional) / self.leverage
             positions[coin] = Position(coin, p["size"], p["entry"], pnl, abs(notional) / self.leverage, None, notional)
         value = self.st["perp_cash"] + upnl
@@ -202,7 +207,7 @@ class SimulatedVenue(Venue):
         booked = []
         if now_ms > last:
             for coin, p in list(self.st["positions"].items()):
-                if not p["size"]:
+                if not p["size"] or (coin, "perp") not in self.market.instruments():
                     continue
                 inst = self._inst(coin, "perp")
                 events = self.market.funding_history(coin, last + 1, now_ms)

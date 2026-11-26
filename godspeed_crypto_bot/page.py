@@ -26,10 +26,9 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from . import config
+from . import config, strategy_file
 from .names import DISPLAY_NAME
 from .names import PAGE_DIR as PAGE_DIR_NAME
-from .strategy import STRATEGY_WORDS
 
 log = logging.getLogger(__name__)
 
@@ -554,7 +553,7 @@ def headline(tr):
     title, explanation = mode_words(tr.cfg, start.get("account_value"))
     start_value = start.get("account_value")
     parts = [f'<p><span class="badge">{_esc(title)}</span></p>', f'<p class="muted small">{_esc(explanation)}</p>',
-             f'<p class="small">Strategy: <b>{_esc(STRATEGY_WORDS[tr.cfg.strategy])}</b>.</p>']
+             f'<p class="small">Strategy: <b>{_esc(strategy_file.words(tr.cfg))}</b>.</p>']
     if tr.halted:
         parts.append(f'<div class="warn"><b>Trading is stopped.</b> {_esc(tr.halted)}</div>')
     if not tr.account:
@@ -679,7 +678,10 @@ def holdings(tr):
         if "profit" in h:
             cls = "up" if h["profit"] >= 0 else "down"
             grid.append(f'<div><b>Profit so far</b><span class="{cls}">{_esc(usd(h["profit"], sign=True))}</span></div>')
-        if tr.cfg.strategy != "mix":  # one strategy runs: there are no halves
+        if strategy_file.is_file_setting(tr.cfg.strategy):  # a strategy file runs in the trend book alone
+            half = (half.replace("The trend half", "Your strategy").replace("The carry half", "The carry trade it "
+                    "replaced").replace("Neither half asks for this any more", "Your strategy no longer asks for this"))
+        elif tr.cfg.strategy != "mix":  # one strategy runs: there are no halves
             half = (half.replace("The trend half", "The trend strategy").replace("The carry half", "The carry strategy")
                     .replace("Neither half asks for this any more", "The strategy no longer asks for this"))
         rows.append(f'<div class="card"><p><b>{_esc(what)}</b></p><p class="small muted">{_esc(half)}</p>'
@@ -789,7 +791,19 @@ PRACTICE_NOTES = {
 }
 
 
-def explain(strategy):
+def own_paragraph(cfg):
+    """A strategy file's paragraph: what the bot understood from it, in plain words."""
+    name = strategy_file.setting_name(cfg.strategy)
+    try:
+        text = strategy_file.explain(strategy_file.load_for(cfg))
+    except strategy_file.StrategyFileError as exc:
+        text = f"Its file cannot be used right now: {exc.problems[0]}"
+    return f'<p class="small"><b>Your own strategy, "{_esc(name)}".</b> {_esc(text)}</p>'
+
+
+def explain(strategy, cfg=None):
+    if strategy_file.is_file_setting(strategy):
+        return EXPLAIN.replace("{strategy_paragraph}", own_paragraph(cfg))
     return EXPLAIN.replace("{strategy_paragraph}", STRATEGY_PARAGRAPHS[strategy])
 
 
@@ -799,7 +813,7 @@ def render(main, practice=None, now=None):
             f'<p class="muted">How {_esc(DISPLAY_NAME)} is doing, refreshed after every daily run '
             '(just after 00:02 UTC) and whenever the safety check trades or moves money.</p>']
     if main is not None:
-        body += [headline(main), "<h2>Balance over time</h2>", chart(main), explain(main.cfg.strategy),
+        body += [headline(main), "<h2>Balance over time</h2>", chart(main), explain(main.cfg.strategy, main.cfg),
                  "<h2>What it holds now</h2>", holdings(main),
                  f"<h2>Every trade ({len(main.trades)}), newest first</h2>", trades(main),
                  "<h2>Funding and fees per day</h2>",
@@ -808,7 +822,8 @@ def render(main, practice=None, now=None):
     if practice is not None:
         body += ['<h2 style="margin-top:44px">The practice exchange</h2>',
                  '<p class="small">The same bot also trades play money on Hyperliquid\'s practice exchange (testnet), '
-                 'to prove the real signing and order sending work. ' + PRACTICE_NOTES[practice.cfg.strategy] + '</p>',
+                 'to prove the real signing and order sending work. '
+                 + PRACTICE_NOTES.get(practice.cfg.strategy, 'It runs your own strategy as it is.') + '</p>',
                  headline(practice)]
         if practice.trades:
             body += [f"<h3>Its trades ({len(practice.trades)}), newest first</h3>", trades(practice)]

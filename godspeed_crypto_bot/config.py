@@ -11,7 +11,8 @@ from datetime import date
 from pathlib import Path
 
 from .names import CONFIG_DIR, CREDENTIAL_PREFIX, RELAY_DIR, STATE_DIR
-from .strategy import DEFAULT_STRATEGY, check_strategy
+from .strategy import DEFAULT_STRATEGY
+from .strategy_file import check_setting
 
 MODES = ("dry-run", "paper", "live")
 NETWORKS = ("mainnet", "testnet")
@@ -51,7 +52,8 @@ class Guard:
 class Config:
     mode: str = "dry-run"
     network: str = "mainnet"
-    strategy: str = DEFAULT_STRATEGY  # "mix" (half trend, half carry), "trend" or "carry"
+    strategy: str = DEFAULT_STRATEGY  # "mix" (half trend, half carry), "trend", "carry", or "file:<name>"
+    strategies_dir: str = f"{CONFIG_DIR}/strategies"  # file:<name> reads <name>.toml here (strategy_file.py)
     master_address: str = ""
     agent_approved_on: str = ""  # YYYY-MM-DD, when the API wallet was approved (fallback for its expiry)
     agent_valid_until: str = ""  # YYYY-MM-DD, if Hyperliquid does not report validUntil
@@ -123,7 +125,7 @@ class Config:
             raise ValueError(f"mode must be one of {MODES}, not {self.mode!r}")
         if self.network not in NETWORKS:
             raise ValueError(f"network must be one of {NETWORKS}, not {self.network!r}")
-        check_strategy(self.strategy)
+        check_setting(self.strategy)
         if (not isinstance(self.capital_cap_usdc, (int, float)) or isinstance(self.capital_cap_usdc, bool)
                 or not math.isfinite(self.capital_cap_usdc)):
             raise ValueError("capital_cap_usdc must be a number")
