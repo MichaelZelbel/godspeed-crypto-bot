@@ -256,7 +256,15 @@ def _settle_missed(shadow, snap, through: date):
         for c, days in snap.close_perp.items():  # a day without a candle (a quiet coin): marked at its last close
             if c not in close and any(k < d for k in days):
                 close[c] = days[max(k for k in days if k < d)]
+        for key, px in shadow.s.marks.items():  # a held coin the exchange no longer lists stays at its last mark
+            market, coin = key.split("@")[0].split(":")
+            if market == "perp":
+                close.setdefault(coin, px)
         spot_close = {c: snap.close_spot[c][d] for c in snap.close_spot if d in snap.close_spot[c]}
+        for key, px in shadow.s.marks.items():
+            market, coin = key.split("@")[0].split(":")
+            if market == "spot":
+                spot_close.setdefault(coin, px)
         funding = {c: snap.funding.get(c, {}).get(d, 0.0) for c in snap.close_perp}
         shadow.settle(d, close, spot_close, funding)
         d += timedelta(days=1)

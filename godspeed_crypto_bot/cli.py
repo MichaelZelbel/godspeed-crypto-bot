@@ -9,6 +9,7 @@ page afterwards, and so does a guard run that traded, moved money or alerted (pa
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import logging
 import os
@@ -262,13 +263,16 @@ def main(argv=None):
             return _strategy(args, config.load(args.config, network=args.network))
         if args.command == "configure":
             path = config.config_path(args.config)
-            if args.strategy and strategy_file.is_file_setting(args.strategy):
-                now = config.load(path)
-                if now.mode == "live" and args.strategy != now.strategy:
+            now = config.load(path)
+            wanted = args.strategy or now.strategy
+            if strategy_file.is_file_setting(wanted) and (args.strategy or args.set_network):
+                # the file is checked for the configuration this command makes: its strategy on its network
+                if now.mode == "live" and wanted != now.strategy:
                     print(f"{names.NAME}: {keys.FILE_NOT_LIVE}; nothing was changed.", file=sys.stderr)
                     return 1
-                target = strategy_file.path_for(now.strategies_dir, strategy_file.setting_name(args.strategy))
-                _spec, problems = _check_file(now, target)
+                target = strategy_file.path_for(now.strategies_dir, strategy_file.setting_name(wanted))
+                _spec, problems = _check_file(dataclasses.replace(now, network=args.set_network or now.network),
+                                              target)
                 if problems:
                     print(f"{names.NAME}: the strategy file {target} cannot be used, so nothing was changed:",
                           file=sys.stderr)

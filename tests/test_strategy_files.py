@@ -656,6 +656,29 @@ def test_a_coin_the_exchange_no_longer_lists_is_left_out_without_stopping_the_ru
     assert "GONE perp is not listed on mainnet; left out" in snap.warnings
 
 
+class DelistedDogeMarket(FakeMarket):
+    """The day after: Hyperliquid no longer lists DOGE (no instrument, no price)."""
+
+
+def test_a_held_coin_the_exchange_delists_neither_crashes_the_run_nor_the_guard(cfg, tmp_path, paper_store, notifier):
+    own(cfg, tmp_path)
+    venue = SimulatedVenue(DogeMarket(), paper_store, "book", start_usdc=2000.0, now=lambda: NOW.timestamp())
+    bot.run_daily(cfg, venue, paper_store, notifier, now=at(TODAY))
+    held = venue.account().perp_size("DOGE")
+    assert held > 0
+    later = TODAY + timedelta(days=2)
+    gone = DelistedDogeMarket(today=later)
+    v2 = SimulatedVenue(gone, paper_store, "book", start_usdc=2000.0, now=lambda: at(later).timestamp())
+    acct = v2.account()  # the paper account holds it at its entry price until the exchange would settle it
+    assert acct.perp_size("DOGE") == held and acct.positions["DOGE"].unrealized_pnl == 0.0
+    out = bot.run_daily(cfg, v2, paper_store, notifier, now=at(later))
+    assert out["status"] == "complete"
+    assert any("DOGE perp is not listed" in w for w in out["warnings"])
+    books = paper_store.books_on(later)["books"]
+    assert books["trend"]["q"]["DOGE"] == pytest.approx(held, rel=0.2)  # kept in the books at its last mark
+    assert bot.guard(cfg, v2, paper_store, notifier, now=at(later, 3))["holdings"]["status"] in ("ok", "rebaselined")
+
+
 # ---- the commands
 
 
@@ -724,6 +747,21 @@ def test_configure_checks_the_file_first_and_refuses_a_failing_one(tmp_path, lis
     with pytest.raises(SystemExit) as exc:
         cli.main(["--config", str(p), "configure", "--strategy", "file:Not Valid"])
     assert exc.value.code == 2
+
+
+def test_configure_checks_the_file_on_the_network_it_switches_to(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "_listed_perps", lambda cfg: {"mainnet": {"BTC", "ETH", "BCH"},
+                                                           "testnet": {"BTC", "ETH"}}[cfg.network])
+    p = write_config(tmp_path)
+    (tmp_path / "strategies" / "base.toml").write_text(BASE.replace('"ETH"]', '"BCH"]'), encoding="utf-8")
+    assert cli.main(["--config", str(p), "configure", "--network", "testnet", "--strategy", "file:base"]) == 1
+    assert "- BCH is not a perpetual on Hyperliquid." in capsys.readouterr().err
+    assert config.load(p).network == "mainnet" and config.load(p).strategy == "mix"
+    assert cli.main(["--config", str(p), "configure", "--strategy", "file:base"]) == 0  # fine on mainnet
+    capsys.readouterr()
+    assert cli.main(["--config", str(p), "configure", "--network", "testnet"]) == 1  # the file it runs is checked too
+    assert "- BCH is not a perpetual on Hyperliquid." in capsys.readouterr().err
+    assert config.load(p).network == "mainnet"
 
 
 def test_a_strategy_file_stays_on_paper_in_this_version(tmp_path, listed, cfg, capsys):
