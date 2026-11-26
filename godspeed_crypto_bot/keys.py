@@ -13,6 +13,7 @@ withdraw: withdrawals are signed by the master key, which never comes near this 
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -51,18 +52,51 @@ def load_agent_key(cfg: Config) -> str:
     return key
 
 
-FILE_NOT_LIVE = ("a strategy file runs on paper and in dry-run only in this version: choose mix, trend or carry "
-                 f"for live trading ({NAME} configure --strategy mix)")
+def strategy_in_sentence(cfg: Config) -> str:
+    """How the confirmation sentence names the strategy: a built-in by its name, a strategy file by its name and the
+    file's fingerprint, so a changed file is a new strategy that needs a new sentence. Raises StrategyFileError."""
+    if strategy_file.is_file_setting(cfg.strategy):
+        spec = strategy_file.load_for(cfg)
+        return f'your own strategy "{spec.name}" with the fingerprint {spec.fingerprint}'
+    return f'the strategy "{cfg.strategy}"'
+
+
+def _before_the_strategy(cfg: Config, agent_address: str) -> str:
+    return (f"I approve live trading by {DISPLAY_NAME} on {cfg.network} for the account "
+            f"{cfg.master_address.lower()} with the API wallet {agent_address.lower()}, using at most "
+            f"{cfg.capital_cap_usdc:g} USDC")
 
 
 def confirmation_text(cfg: Config, agent_address: str) -> str:
-    """The exact sentence the confirmation file must hold: one line the person types themselves. The bot never
-    writes this file."""
-    return (
-        f"I approve live trading by {DISPLAY_NAME} on {cfg.network} for the account "
-        f"{cfg.master_address.lower()} with the API wallet {agent_address.lower()}, using at most "
-        f"{cfg.capital_cap_usdc:g} USDC.\n"
-    )
+    """The exact sentence the confirmation file must hold: one line the person types themselves, naming the network,
+    the account, the key, the cap and the strategy. The bot never writes this file."""
+    return f"{_before_the_strategy(cfg, agent_address)}, running {strategy_in_sentence(cfg)}.\n"
+
+
+NEW_SENTENCE = (f"Real money stays off until you type the confirmation sentence again: run {NAME} go-live in your own "
+                "terminal on the server.")
+
+
+def confirmation_problem(cfg: Config, agent_address: str, text: str):
+    """Why a confirmation file does not open the gate, in plain words, or None when it matches."""
+    text = text.replace(chr(13) + chr(10), chr(10))
+    try:
+        want = confirmation_text(cfg, agent_address)
+    except strategy_file.StrategyFileError as exc:
+        return f"the strategy file cannot be used: {exc.problems[0]}"
+    if text == want:
+        return None
+    before = _before_the_strategy(cfg, agent_address)
+    if text == before + ".\n":  # typed with version 0.1, before the sentence named the strategy
+        return ("the confirmation you typed with an earlier version does not name the strategy, and the sentence now "
+                "does. " + NEW_SENTENCE)
+    rest = text[len(before):] if text.startswith(before) else ""
+    if re.fullmatch(r', running (the strategy "[a-z]+"|your own strategy "[a-z][a-z0-9-]*" with the fingerprint '
+                    r'[0-9a-f]{8})\.\n', rest):  # a well-formed sentence for another strategy
+        return (f"the strategy in use ({strategy_in_sentence(cfg)}) is not the one you confirmed; changing the strategy "
+                "or its file while trading real money needs a new sentence. " + NEW_SENTENCE)
+    return (f"confirmation file {cfg.confirm_file} does not match this network, account, key, cap and strategy (only "
+            f"`{NAME} go-live`, typed by the owner, writes it)")
 
 
 def live_problems(cfg: Config, before_confirmation=False):
@@ -74,7 +108,10 @@ def live_problems(cfg: Config, before_confirmation=False):
     if cfg.mode != "live":
         problems.append(f"config mode is {cfg.mode!r}, not 'live'")
     if strategy_file.is_file_setting(cfg.strategy):
-        problems.append(FILE_NOT_LIVE)
+        try:
+            strategy_file.load_for(cfg)
+        except strategy_file.StrategyFileError as exc:
+            problems.append(f"the strategy file cannot be used: {exc.problems[0]}")
     if not ADDRESS.match(cfg.master_address or ""):
         problems.append("master_address is not set")
     if not cfg.cap_named:
@@ -91,9 +128,9 @@ def live_problems(cfg: Config, before_confirmation=False):
     if not confirm.is_file():
         problems.append(f"confirmation file {confirm} does not exist (only the owner's own typed approval creates it)")
     elif agent and ADDRESS.match(cfg.master_address or ""):
-        if confirm.read_text(encoding="utf-8").replace(chr(13) + chr(10), chr(10)) != confirmation_text(cfg, agent):
-            problems.append(f"confirmation file {confirm} does not match this network, master, agent and cap "
-                            f"(only `{NAME} go-live`, typed by the owner, writes it)")
+        why = confirmation_problem(cfg, agent, confirm.read_text(encoding="utf-8"))
+        if why and not why.startswith("the strategy file cannot be used"):  # that one is said above already
+            problems.append(why)
     return problems
 
 

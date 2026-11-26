@@ -23,8 +23,13 @@ Nothing here is advice or a forecast. A strategy that looks sensible can lose mo
    that fails. From the next daily run (00:02 UTC) the bot runs it, and `status`, the page and the weekly report name
    it.
 
-In this version a strategy file runs on paper (simulated money on real prices) and in dry-run; for real money choose
-one of the built-in strategies.
+Or do all of it in your Godspeed's chat: your assistant writes the file in `crypto-bot/strategies/` of your mission
+control folder and asks the bot to check it, test it and run it on paper through small request files in
+`crypto-bot/requests/`, which the bot answers within a minute (the README's "Your own strategy" says how).
+
+A strategy file runs on paper (pretend money on real prices) and in dry-run like a built-in strategy. For real money
+you type the `go-live` sentence yourself, as for a built-in; it names your strategy and the file's fingerprint, so a
+changed file, or another strategy, pauses real money until you type the new sentence.
 
 ## The settings
 

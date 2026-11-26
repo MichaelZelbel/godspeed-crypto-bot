@@ -479,8 +479,9 @@ def build_report(label, words, setting, spec, run: Run, start_equity, market: Ma
     return "\n".join(lines) + "\n", doc
 
 
-def run(cfg, setting, start=None, end=None, market=None, today=None, out_dir=None, sleep=time.sleep):
-    """Test a strategy and write its report. Returns (markdown path, json path, markdown text)."""
+def run(cfg, setting, start=None, end=None, market=None, today=None, out_dir=None, sleep=time.sleep, name=None):
+    """Test a strategy and write its report. Returns (markdown path, json path, markdown text). ``name``: the report's
+    file name instead of strategy and period (the chat door asks for its request's)."""
     from .venue.hyperliquid import HyperliquidMarketData
 
     label, words, coins, spot_coins, spec = strategy_parts(cfg, setting)
@@ -503,7 +504,7 @@ def run(cfg, setting, start=None, end=None, market=None, today=None, out_dir=Non
     equity = float(cfg.capital_cap_usdc)
     result = simulate(m.history, setting if spec is None else spec.setting, spec, m.start, m.end, equity)
     text, doc = build_report(label, words, setting, spec, result, equity, m)
-    base = folder / f"{label}-{m.start}-to-{m.end}"
+    base = folder / (name or f"{label}-{m.start}-to-{m.end}")
     done = []
     for path, body in ((base.with_suffix(".json"), json.dumps(doc, indent=1)), (base.with_suffix(".md"), text)):
         tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")

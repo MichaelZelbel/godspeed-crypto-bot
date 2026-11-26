@@ -207,7 +207,7 @@ main() {
 
   rm -rf "$CODE/godspeed_crypto_bot" "$CODE/deploy"
   rm -rf "$CODE/skill"
-  (cd "$src" && tar -cf - godspeed_crypto_bot deploy skill pyproject.toml uv.lock README.md INSTALL-FOR-ASSISTANTS.md $([ -f LICENSE ] && echo LICENSE) 2>/dev/null) | tar -xf - -C "$CODE"
+  (cd "$src" && tar -cf - godspeed_crypto_bot deploy skill docs pyproject.toml uv.lock README.md INSTALL-FOR-ASSISTANTS.md $([ -f LICENSE ] && echo LICENSE) 2>/dev/null) | tar -xf - -C "$CODE"
   find "$CODE/godspeed_crypto_bot" -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null || true
   export UV_PYTHON_INSTALL_DIR="$CODE/python"   # a Python it has to download must be readable by the bot's user
   "$UV" venv --quiet --allow-existing --python 3.12 "$CODE/.venv" \
@@ -249,28 +249,12 @@ main() {
 
   [ -n "$answered_now" ] && write_answer false
 
-  # ---- the recipe the owner's assistant follows, where Godspeed's assistant reads recipes (never over a recipe
-  # the owner wrote with the same name: only a folder this installer marked is replaced)
-  # On the one-line Docker server Godspeed's assistant runs inside its container and reads no folder on this
-  # server, so no recipe is put here; whoever has a shell on the server follows INSTALL-FOR-ASSISTANTS.md.
-  local room="$godspeed/skills" recipe_marker=".installed-by-$NAME" docker_godspeed=no
-  grep -Eq '"kind"[[:space:]]*:[[:space:]]*"godspeed-docker"' "$godspeed/.godspeed/model-host.json" 2>/dev/null && docker_godspeed=yes
-  if ! ls "$room"/*/SKILL.md >/dev/null 2>&1 && ls "$godspeed/.claude/skills"/*/SKILL.md >/dev/null 2>&1; then room="$godspeed/.claude/skills"; fi
-  local dst="$room/crypto-bot"
-  if [ "$docker_godspeed" = yes ]; then
-    local old   # one an earlier version put where nobody reads it, in either place it used
-    for old in "$godspeed/skills/crypto-bot" "$godspeed/.claude/skills/crypto-bot"; do
-      if [ -f "$old/$recipe_marker" ]; then rm -rf "$old"; fi
-    done
-  elif [ -d "$CODE/skill/crypto-bot" ] && { [ ! -e "$dst" ] || [ -f "$dst/$recipe_marker" ]; }; then
-    mkdir -p "$room"
-    rm -rf "$dst"
-    cp -R "$CODE/skill/crypto-bot" "$dst"
-    echo "$NAME $TAG" > "$dst/$recipe_marker"
-    chown -R --reference="$godspeed" "$room/crypto-bot" 2>/dev/null || true
-  elif [ -e "$dst" ]; then
-    say "Left alone: $dst holds a recipe you wrote with the same name."
-  fi
+  # ---- the chat door: a crypto-bot folder in the mission control folder Godspeed's assistant works in (its strategy
+  # files, and the requests the relay answers) and the recipe it follows, where it reads recipes. On a native install
+  # that is the Godspeed folder; on the one-line Docker server the folder inside Godspeed's container, found through
+  # the container's mounts (chat_door.py). A recipe the owner wrote with the same name is left alone.
+  local door_said door_ok=yes
+  door_said="$("/usr/local/sbin/$NAME" chat-door --version "$TAG" 2>&1)" || door_ok=no
 
   systemctl daemon-reload
   for k in daily guard deadline report terms relay; do systemctl enable --now "$NAME-$k.timer" >/dev/null 2>&1 \
@@ -285,8 +269,10 @@ main() {
   local log="$ETC/install.log" said
   echo "== $(date -u '+%F %T') UTC: $DISPLAY $TAG, install or update" >> "$log"
   chmod 0644 "$log"
+  printf 'chat door:\n%s\n' "$door_said" >> "$log"
   if said="$("/usr/local/sbin/$NAME" preflight 2>>"$log")"; then said_ok=yes; else said_ok=no; fi
   printf '%s\n' "$said" >> "$log"
+  local live_paused=no
   if [ "$said_ok" != yes ]; then
     say "$DISPLAY's own check (preflight) did not pass:"
     printf '%s' "$said" | "$CODE/.venv/bin/python" -c 'import json, sys
@@ -294,7 +280,10 @@ try:
     for problem in json.load(sys.stdin).get("problems", []): print("  - " + problem)
 except ValueError:
     pass'
-    die "The details are in $log."
+    # A live bot is updated all the same: its real money stays off until the check passes (for an update from 0.1,
+    # until the person types the new sentence, which names the strategy), and its messages say so.
+    [ "$mode" = "live" ] || die "The details are in $log."
+    live_paused=yes
   fi
   if [ "$mode" != "live" ]; then
     "/usr/local/sbin/$NAME" run-daily --allow-late >> "$log" 2>&1 \
@@ -307,7 +296,9 @@ except ValueError:
   address="$("/usr/local/sbin/$NAME" status 2>/dev/null | sed -n 's/^ *"page": *"\([^"]*\)".*/\1/p' | head -n 1)"
 
   say ""
-  if [ "$mode" = "live" ] && [ -e "$STATE/HALT" ]; then
+  if [ "$live_paused" = yes ]; then
+    say "$DISPLAY is updated; its records, key and settings are as they were, and real money is paused until its own check above passes. Nobody else can type that sentence for you."
+  elif [ "$mode" = "live" ] && [ -e "$STATE/HALT" ]; then
     say "$DISPLAY is updated; its records, key and settings are as they were. Trading is on hold (a HALT file is there: $(head -n 1 "$STATE/HALT")); run '$NAME resume' when you want it to trade again."
   elif [ "$mode" = "live" ]; then
     say "$DISPLAY is updated and still trading live; its records, key and settings are as they were."
@@ -320,6 +311,12 @@ except ValueError:
     if [ -e "$STATE/HALT" ]; then
       say "Trading is on hold (a HALT file is there: $(head -n 1 "$STATE/HALT")); run '$NAME resume' when you want it to trade again."
     fi
+  fi
+  if [ "$door_ok" = yes ]; then
+    printf '%s\n' "$door_said" | grep '^Left alone:' || true
+    say "Godspeed's assistant has $DISPLAY's recipe and a crypto-bot folder, so it can bring your own strategy to the bot in the chat."
+  else
+    say "Godspeed's assistant could not be given $DISPLAY's recipe and folder yet ($(printf '%s' "$door_said" | tail -n 1 | sed "s/^$NAME: //")); everything else works, and running this line again tries it again."
   fi
   if [ -n "$address" ]; then say "Its page, behind your Godspeed sign-in: $address"
   else say "Its page gets an address as soon as Godspeed's web address is found; '$NAME status' shows it."; fi

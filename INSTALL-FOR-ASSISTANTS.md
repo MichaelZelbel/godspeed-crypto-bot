@@ -17,6 +17,8 @@ account and key steps, its terms) is in that exchange's own section at the end: 
   minutes, so it needs a server that stays on. If that is the situation, say so in one sentence and stop.
 - You need a shell on the server as root. Godspeed's own assistant on the one-line Docker server lives in its
   container and has none: there, tell the person each command to run, or work over SSH if they give you access.
+  Their own strategy is the exception: Godspeed's assistant brings it to the bot through files on both installs
+  (section 4).
 - Find Godspeed's folder on the server (the one that holds `.godspeed/`): `/opt/godspeed-mission-control` on a
   server set up with Godspeed's one-line server installer, or the `godspeed` folder in the home of the account
   Godspeed's assistant runs as on a Linux install of Godspeed itself. Godspeed must be version 2.0.0-beta.6 or
@@ -58,6 +60,26 @@ Three built-in choices, one setting: `godspeed-crypto-bot configure --strategy m
 collect funding; `mix` (the default) is half of each. A change takes effect at the next daily run. Say what
 they do in plain words and do not say which is "best": none of them promises a result.
 
+**Their own strategy** is a file of settings from a fixed menu, `docs/strategy-files.md` in the add-on's folder (the
+recipe carries a copy as `strategy-files.md`). Nothing in it is ever run as a program; a setting the menu lacks is
+refused, so say plainly what their idea needs that the menu does not have, and never invent a setting.
+
+- **Through the chat door** (Godspeed's own assistant, on both installs): the installer made a `crypto-bot` folder in
+  the mission control folder the assistant works in. Write the file as `crypto-bot/strategies/<name>.toml`, then one
+  request per step as a new file `crypto-bot/requests/<id>.json`: `{"request": "check", "strategy": "<name>"}`,
+  `{"request": "backtest", "strategy": "<name>"}` (optionally `"start"` and `"end"`, `YYYY-MM-DD`) and, after the
+  person said yes, `{"request": "use-on-paper", "strategy": "<name>"}`. The bot's relay answers within a minute in
+  `crypto-bot/requests/<id>.result.md` (and `.result.json`); a first backtest can take a few minutes while it fetches
+  prices. A malformed request is answered with one sentence and changes nothing. `use-on-paper` works only in paper or
+  dry-run mode; the door never reaches real money, the cap, the account or the key.
+- **In a terminal**: `godspeed-crypto-bot strategy check <file>`, copy it to
+  `/etc/godspeed-crypto-bot/strategies/<name>.toml` (readable by everyone), `godspeed-crypto-bot backtest
+  file:<name>`, then `godspeed-crypto-bot configure --strategy file:<name>`.
+
+Explain a backtest from its report, worst stretches first (the worst day, week and month, the deepest fall from a
+high point and how long it lasted), then costs and how often it traded, next to simply holding the coins. Its first
+line says it is the past, not a forecast; say so too.
+
 ## 5. Going live (only if they ask, in this order)
 
 First tell them once: real money can be lost entirely, nothing here is investment, tax or legal advice, and
@@ -73,8 +95,8 @@ whether they may use the exchange where they live is theirs to check.
 4. **The most the bot may use.** Ask them how much, in USDC, the bot may use at most. There is no default for
    the amount and you never pick it for them: `godspeed-crypto-bot configure --cap <USDC>`.
 5. **They type the confirmation.** Tell them to run `godspeed-crypto-bot go-live` in their own terminal on the
-   server. It checks everything first, prints one sentence (the network, their account, the key and the cap),
-   and asks them to type it exactly. Only their typed line switches on real money; it refuses input that is not
+   server. It checks everything first, prints one sentence (the network, their account, the key, the cap and the
+   strategy, with the fingerprint of a strategy file), and asks them to type it exactly. Only their typed line switches on real money; it refuses input that is not
    a terminal. If it refuses, read what it says, fix that, and ask them to run it again.
 6. `godspeed-crypto-bot preflight` shows ready. From the next daily run (00:02 UTC) real orders are placed,
    with positions sized from the cap they named.
@@ -88,6 +110,9 @@ whether they may use the exchange where they live is theirs to check.
   sends real orders in live mode. Read its answer: if something could not be closed it says what, and tells the person.
 - **Tax export:** `godspeed-crypto-bot export --start YYYY-MM-DD --end YYYY-MM-DD --out <file>` (fills, fees,
   funding and transfers in UTC; the euro column is blank).
+- **Real money paused after a change:** the confirmation names the strategy, so switching strategy or changing the
+  strategy file while live pauses real money, and so does an update from version 0.1 (its confirmation named no
+  strategy). `preflight` and the bot's message say so; they run `go-live` and type the new sentence themselves.
 - **Renew the key** (the Godspeed reminder says when): `godspeed-crypto-bot keygen --network mainnet --replace`,
   they approve the new address on the exchange, they run `go-live` again (the sentence names the key), then
   `preflight`.
