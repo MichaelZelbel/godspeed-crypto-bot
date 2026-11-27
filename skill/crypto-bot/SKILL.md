@@ -1,6 +1,6 @@
 ---
 name: crypto-bot
-description: Crypto Bot, the person's own trading bot on Hyperliquid. Use when they ask how their bot is doing ("how is my crypto bot doing", "what does the bot hold", "did it trade today"), want it stopped or started again ("stop the bot", "pause trading", "resume"), want everything sold ("sell everything", "close all positions"), want a different strategy ("switch the strategy to carry", "trend only"), want to describe, test or run a strategy of their own ("I have my own strategy", "test my idea against the past", "run my strategy on paper"), want real money switched on ("go live", "trade with real money"), ask about the exchange key ("the bot's key expires", "renew the key"), want the tax export, or want Crypto Bot installed or removed.
+description: Crypto Bot, the person's own trading bot on Hyperliquid. Use when they ask how their bot is doing ("how is my crypto bot doing", "what does the bot hold", "did it trade today"), want it stopped or started again ("stop the bot", "pause trading", "resume"), want everything sold ("sell everything", "close all positions"), want a different strategy ("switch the strategy to carry", "trend only"), want to find, describe, test or run a strategy of their own ("help me find a crypto trading strategy that fits me", "I have my own strategy", "test my idea against the past", "run my strategy on paper"), want real money switched on ("go live", "trade with real money"), ask about the exchange key ("the bot's key expires", "renew the key"), want the tax export, or want Crypto Bot installed or removed.
 ---
 
 ## What this is
@@ -31,6 +31,15 @@ Full set-up steps, in order, are in `INSTALL-FOR-ASSISTANTS.md` in the add-on's 
 
 This works the same whether or not you can run commands on the server: you only write files in the mission control
 folder, in its `crypto-bot` folder, and the bot answers within a minute.
+
+**If they have no strategy yet** and ask you to help them find one, interview them and research as they ask, but keep
+to what the menu in `strategy-files.md` can run, and say so: a trend over chosen days, the price against its average
+or two averages crossing (plain averages of daily closing prices, not exponential ones), a coin that fell or rose too
+far, funding, fixed shares, or an average of these. Breakouts above a past high or below a past low, buying a fixed
+amount on a schedule, grids, stop losses and exponential averages are not in the menu: when one comes up, say in one
+sentence that the bot cannot run it, and offer the closest thing it can if they want it. Their paper test is the
+bot's own: a test against the past through a request, then paper with use-on-paper on their yes, never a log kept by
+hand. Then go on with step 1 for the approach they choose.
 
 1. **Interview them**, one question at a time, in their words: which coins (Hyperliquid perpetuals, like BTC, ETH,
    SOL), what makes them want to be in a coin or out of it (a trend, the price above or below its average over some

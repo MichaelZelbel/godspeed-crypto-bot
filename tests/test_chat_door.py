@@ -404,7 +404,8 @@ def test_the_recipe_teaches_the_door_and_promises_nothing():
     text = (ROOT / "skill" / "crypto-bot" / "SKILL.md").read_text(encoding="utf-8")
     for must in ("crypto-bot/strategies/", "crypto-bot/requests/", '"request": "check"', '"request": "backtest"',
                  '"request": "use-on-paper"', "Never type or paste the confirmation sentence", "Never invent a setting",
-                 "strategy-files.md", "say plainly", "worst"):
+                 "strategy-files.md", "say plainly", "worst", "help me find a crypto trading strategy",
+                 "not in the menu", "never a log kept by"):
         assert must.lower() in text.lower(), must
     assert "—" not in text
     for line in text.splitlines():
