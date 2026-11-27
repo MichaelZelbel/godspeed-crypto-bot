@@ -176,12 +176,17 @@ check "state still belongs to the bot's user" test "$(stat -c %U "$STATE/keepme"
 for k in daily guard relay; do check "timer $k is active after the update" systemctl is-active --quiet "$NAME-$k.timer"; done
 rm -f "$STATE/HALT"
 
+# Since 0.2.0 a live bot is updated all the same (an update from 0.1 must reach a live bot, whose go-live sentence now
+# names the strategy): its own check fails, real money stays paused until it passes, and nothing is run.
 echo "== an update of a configuration that says live (however it is spelled) only checks, never runs"
 cp "$ETC/config.toml" "$WORK/config.paper"
 sed -i "s/^mode = .*/  mode = 'live'/" "$ETC/config.toml"
 runs_before="$(sqlite3 "$STATE/bot.sqlite" 'select count(*) from runs' 2>/dev/null || echo na)"
 out="$(bash "$INSTALL" --godspeed "$GS" --source "$SRC" 2>&1)"; code=$?
-[ "$code" -ne 0 ] && printf '%s' "$out" | grep -q "preflight" && pass "a live-looking update stops at its own check (no key here)" || fail "live-looking update: exit $code: $(printf '%s' "$out" | tail -n 2)"
+[ "$code" -eq 0 ] && printf '%s' "$out" | grep -q "own check (preflight) did not pass" \
+  && printf '%s' "$out" | grep -q "real money is paused until its own check above passes" \
+  && pass "a live-looking update is made, says its own check failed (no key here) and that real money is paused" \
+  || fail "live-looking update: exit $code: $(printf '%s' "$out" | tail -n 2)"
 check "its refusal lists the problems as sentences, not data" bash -c '! printf "%s" "$1" | grep -q "[{}]" && printf "%s" "$1" | grep -q "^  - "' _ "$out"
 runs_after="$(sqlite3 "$STATE/bot.sqlite" 'select count(*) from runs' 2>/dev/null || echo na)"
 [ "$runs_before" = "$runs_after" ] && pass "and no run was made" || fail "a run was made during a live-looking update"
