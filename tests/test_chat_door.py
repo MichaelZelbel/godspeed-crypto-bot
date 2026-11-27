@@ -408,6 +408,10 @@ def test_the_recipe_teaches_the_door_and_promises_nothing():
                  "not in the menu", "never a log kept by"):
         assert must.lower() in text.lower(), must
     assert "—" not in text
+    # Godspeed's assistant (Hermes) shows only a recipe's first 57 characters in its index of recipes, so those must say
+    # what it is for: on the walk-through the book's "help me find a crypto trading strategy" never brought it up.
+    lead = re.search(r"^description: (.*)$", text, re.M).group(1)[:57]
+    assert "trading bot" in lead and "strategies" in lead, lead
     for line in text.splitlines():
         if re.search(r"\b(guarantee|will (make|earn|gain|return)|expected return|(?<!take-)profit)\w*", line, re.I):
             assert line.lstrip().startswith(("- **Never", "**Never")), line
