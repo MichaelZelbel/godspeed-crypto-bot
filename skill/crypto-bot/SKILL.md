@@ -58,7 +58,8 @@ hand. Then go on with step 1 for the approach they choose.
 3. **Write the file** `crypto-bot/strategies/<name>.toml` from the menu, `name` the same as the file's name (lowercase
    letters, digits, dashes). Show it to them. **Money:** write the limits they gave you (step 1), as they gave them:
    "at most a quarter in one coin" is `max_per_coin = 0.25`. What they did not limit, leave out (`gross_exposure`
-   and `max_per_coin` are then 1: never more than the money itself). Never copy a number from an example.
+   and `max_per_coin` are then 1: it aims to bet at most the money itself, and between rebalances moving prices
+   can take it a little above that before the bot sets it back). Never copy a number from an example.
    `gross_exposure` above 1 bets borrowed money: write it only if they asked for more than their money in those
    words, after you have said so in one sentence and they said yes. If they did not say how much may go on one coin,
    say what the file allows.
