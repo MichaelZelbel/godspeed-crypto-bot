@@ -232,6 +232,33 @@ class SafeDir:
         else:
             shutil.rmtree(self.path / self._name(name))
 
+    def remove_marked(self, name, marker) -> bool:
+        """Remove the folder ``name`` only when it holds ``marker``. The marker is looked for, and the folder emptied,
+        through the one folder opened here, so a folder its owner swaps in meanwhile is never emptied; the name is
+        then removed only if it is an empty folder."""
+        d = self.sub(name)
+        try:
+            if not d.exists(marker):
+                return False
+            for entry in d.names():
+                st = d._lstat(entry)
+                if stat.S_ISDIR(st.st_mode) and not stat.S_ISLNK(st.st_mode):
+                    d.remove_tree(entry)  # rmtree below an opened folder never follows a link
+                elif d.fd is not None:
+                    os.unlink(entry, dir_fd=d.fd)
+                else:
+                    os.unlink(d.path / entry)
+        finally:
+            d.close()
+        try:
+            if self.fd is not None:
+                os.rmdir(self._name(name), dir_fd=self.fd)
+            else:
+                os.rmdir(self.path / self._name(name))
+        except OSError:
+            pass  # not empty: something else is at that name now, and it stays
+        return True
+
 
 def open_chain(base, parts) -> SafeDir:
     """The trusted base, then each part below it as a SafeDir (every one owned by the base's owner)."""
@@ -552,7 +579,7 @@ def setup(root, code_dir, version, old_places=()):
                 said.append(f"Left alone: {room.path / RECIPE} holds a recipe you wrote with the same name.")
             else:
                 if room.exists(RECIPE):
-                    room.remove_tree(RECIPE)
+                    room.remove_marked(RECIPE, RECIPE_MARKER)
                 dst = room.sub(RECIPE, create=True)
                 try:
                     src = Path(code_dir) / "skill" / RECIPE

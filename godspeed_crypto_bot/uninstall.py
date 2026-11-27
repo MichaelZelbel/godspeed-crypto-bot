@@ -108,8 +108,8 @@ def remove_recipe(cfg, gs=None, run=godspeed.sh, root="/"):
         except (OSError, chat_door.Refused):
             continue
         try:
-            if d.exists(chat_door.RECIPE) and chat_door._marked(d, chat_door.RECIPE):
-                d.remove_tree(chat_door.RECIPE)
+            if d.exists(chat_door.RECIPE):
+                d.remove_marked(chat_door.RECIPE, chat_door.RECIPE_MARKER)
         except (OSError, chat_door.Refused):
             pass
         finally:

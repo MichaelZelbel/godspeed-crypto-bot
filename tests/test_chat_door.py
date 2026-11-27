@@ -466,3 +466,47 @@ def test_an_existing_gitignore_gains_the_requests_rule_once(tmp_path):
     assert lines[0] == "*.tmp" and lines.count("requests/") == 1
     chat_door.setup((mc, []), ROOT, "v")
     assert (mc / "crypto-bot" / ".gitignore").read_text(encoding="utf-8").splitlines().count("requests/") == 1
+
+
+def test_remove_marked_removes_only_a_marked_folder(tmp_path):
+    for name, marked in (("theirs", False), ("ours", True)):
+        (tmp_path / name / "sub").mkdir(parents=True)
+        (tmp_path / name / "SKILL.md").write_text("x")
+        if marked:
+            (tmp_path / name / chat_door.RECIPE_MARKER).write_text("v")
+    base = chat_door.SafeDir.open_base(str(tmp_path))
+    try:
+        assert base.remove_marked("theirs", chat_door.RECIPE_MARKER) is False
+        assert base.remove_marked("ours", chat_door.RECIPE_MARKER) is True
+    finally:
+        base.close()
+    assert (tmp_path / "theirs" / "SKILL.md").is_file() and not (tmp_path / "ours").exists()
+
+
+@pytest.mark.skipif(not POSIX, reason="the folder is held open by its descriptor on POSIX only")
+def test_a_folder_swapped_in_after_the_marker_was_seen_is_never_emptied(tmp_path, monkeypatch):
+    """Codex's finding on #15: between seeing the marker and removing the folder, its owner could rename the marked
+    folder away and put an unmarked one of theirs at the same name. The emptying goes through the folder that was
+    opened and checked, so theirs stays whole."""
+    recipe = tmp_path / "skills" / chat_door.RECIPE
+    recipe.mkdir(parents=True)
+    (recipe / "SKILL.md").write_text("ours")
+    (recipe / chat_door.RECIPE_MARKER).write_text("v")
+    real_exists = chat_door.SafeDir.exists
+
+    def swap_then_exists(self, name):
+        found = real_exists(self, name)
+        if name == chat_door.RECIPE_MARKER and found and not (tmp_path / "skills" / "moved").exists():
+            os.rename(recipe, tmp_path / "skills" / "moved")
+            recipe.mkdir()
+            (recipe / "SKILL.md").write_text("theirs")
+        return found
+
+    monkeypatch.setattr(chat_door.SafeDir, "exists", swap_then_exists)
+    room = chat_door.open_chain(str(tmp_path), ["skills"])
+    try:
+        room.remove_marked(chat_door.RECIPE, chat_door.RECIPE_MARKER)
+    finally:
+        room.close()
+    assert (recipe / "SKILL.md").read_text() == "theirs"  # the folder swapped in is untouched
+    assert list((tmp_path / "skills" / "moved").iterdir()) == []  # the marked one was emptied through its descriptor
