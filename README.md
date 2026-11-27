@@ -68,8 +68,9 @@ It makes no key and never switches to real money.
   chat (below). The go-live sentence now names the strategy, so a bot that already trades real money pauses real money
   after this update until you type the new sentence (`godspeed-crypto-bot go-live`); the update says so.
 - **What changed in 0.1.1:** on a native Godspeed server the bot no longer restarts Godspeed's web address.
-- **Remove it:** `godspeed-crypto-bot uninstall` stops and removes the timers, command, page address, program and
-  user, and keeps the records and settings; `--purge` removes those too. It never touches the exchange: positions
+- **Remove it:** `godspeed-crypto-bot uninstall` stops and removes the timers, command, page address, program, user
+  and the recipe it gave Godspeed's assistant, and keeps the records and settings (and your strategy files in the
+  mission control folder); `--purge` removes the records and settings too. It never touches the exchange: positions
   stay open unless you ran `flatten --yes` first (it refuses while the account holds positions, unless `--yes`), and
   the API wallet stays approved on Hyperliquid until you remove it there. A reminder to renew the key stays among your
   Godspeed reminders until you close it there; the uninstall says so when there is one.

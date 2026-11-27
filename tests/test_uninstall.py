@@ -1,5 +1,6 @@
 """Uninstall: what it refuses, what it removes, what it keeps."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -234,3 +235,65 @@ def test_a_reminder_made_in_godspeed_is_named_because_only_the_owner_can_close_i
     synced.write_text("{}")
     _calls, said = _run(cfg, tmp_path, purge=purge)
     assert "exchange key stays among your Godspeed reminders; close it there" in " ".join(said)
+
+
+def _docker_godspeed(tmp_path):
+    """A one-line Docker Godspeed: its folder with the installer's marker, and the volume that holds the assistant's
+    mission control folder (as the container's mounts report it), with the add-on's recipe, a recipe the person wrote
+    and their strategy files."""
+    root = tmp_path / "opt-godspeed"
+    (root / ".godspeed").mkdir(parents=True)
+    (root / "compose.yaml").write_text("services: {}\n")
+    (root / ".godspeed" / "model-host.json").write_text(json.dumps({
+        "format": 1, "kind": "godspeed-docker", "service": "godspeed", "workspace": "/opt/data/full-candidate/workspace"}))
+    volume = tmp_path / "volume" / "_data"
+    ws = volume / "workspace"
+    for d in ("skills/crypto-bot", "skills/my-own", "crypto-bot/strategies"):
+        (ws / d).mkdir(parents=True)
+    (ws / "skills" / "crypto-bot" / "SKILL.md").write_text("recipe")
+    (ws / "skills" / "crypto-bot" / f".installed-by-{NAME}").write_text("v")
+    (ws / "skills" / "my-own" / "SKILL.md").write_text("mine")
+    (ws / "crypto-bot" / "strategies" / "mine.toml").write_text('name = "mine"\n')
+    return root, volume, ws
+
+
+def _docker_run(volume, running=True):
+    def run(argv, timeout=120, stdin=None):
+        if argv[-3:] == ["ps", "-q", "godspeed"]:
+            return 0, ("abc123\n" if running else ""), ""
+        if argv[:3] == ["docker", "inspect", "abc123"]:
+            return 0, json.dumps([{"Mounts": [
+                {"Type": "volume", "Source": volume.as_posix(), "Destination": "/opt/data/full-candidate"}]}]), ""
+        return 0, "", ""
+    return run
+
+
+def test_on_the_docker_server_the_recipe_leaves_the_assistants_folder_too(cfg, tmp_path):
+    """Seen on the fresh-server walk-through: after uninstall --purge the recipe stayed inside the container, so the
+    assistant still knew a bot that was gone."""
+    root, volume, ws = _docker_godspeed(tmp_path)
+    cfg.godspeed_dir = str(root)
+    gs = godspeed.find(str(root))
+    uninstall.remove_recipe(cfg, gs, _docker_run(volume), str(tmp_path / "host"))
+    assert not (ws / "skills" / "crypto-bot").exists()
+    assert (ws / "skills" / "my-own" / "SKILL.md").read_text() == "mine"  # the person's own recipes stay
+    assert (ws / "crypto-bot" / "strategies" / "mine.toml").is_file()  # and so do their strategy files
+
+
+def test_a_recipe_the_person_wrote_with_the_same_name_stays_on_the_docker_server(cfg, tmp_path):
+    root, volume, ws = _docker_godspeed(tmp_path)
+    (ws / "skills" / "crypto-bot" / f".installed-by-{NAME}").unlink()
+    cfg.godspeed_dir = str(root)
+    uninstall.remove_recipe(cfg, godspeed.find(str(root)), _docker_run(volume), str(tmp_path / "host"))
+    assert (ws / "skills" / "crypto-bot" / "SKILL.md").read_text() == "recipe"
+
+
+def test_with_godspeed_stopped_the_place_the_relay_last_found_is_used(cfg, tmp_path):
+    root, volume, ws = _docker_godspeed(tmp_path)
+    cfg.godspeed_dir = str(root)
+    host = tmp_path / "host"
+    kept = host / str(cfg.relay_path).lstrip("/") / godspeed.CHAT_ROOT_FILE
+    kept.parent.mkdir(parents=True)
+    kept.write_text(json.dumps({"base": volume.as_posix(), "parts": ["workspace"]}))
+    uninstall.remove_recipe(cfg, godspeed.find(str(root)), _docker_run(volume, running=False), str(host))
+    assert not (ws / "skills" / "crypto-bot").exists()
