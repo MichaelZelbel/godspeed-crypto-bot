@@ -56,10 +56,12 @@ hand. Then go on with step 1 for the approach they choose.
    other exchanges, news or other data, and any indicator not in the menu are not there. Say so in one sentence
    each, and offer the closest thing the menu has only if they want it. Never guess a setting.
 3. **Write the file** `crypto-bot/strategies/<name>.toml` from the menu, `name` the same as the file's name (lowercase
-   letters, digits, dashes). Show it to them. **Money:** leave `gross_exposure` and `max_per_coin` out (both 1: never
-   more than the money itself, no borrowed money) unless they asked for more in those words. Never copy a number
-   from an example: above 1 bets borrowed money, so say that in one sentence and ask before you write it. If they
-   did not say how much may go on one coin, say what you chose.
+   letters, digits, dashes). Show it to them. **Money:** write the limits they gave you (step 1), as they gave them:
+   "at most a quarter in one coin" is `max_per_coin = 0.25`. What they did not limit, leave out (`gross_exposure`
+   and `max_per_coin` are then 1: never more than the money itself). Never copy a number from an example.
+   `gross_exposure` above 1 bets borrowed money: write it only if they asked for more than their money in those
+   words, after you have said so in one sentence and they said yes. If they did not say how much may go on one coin,
+   say what the file allows.
 4. **Ask the bot to check it**: write a new file `crypto-bot/requests/<id>.json`, where `<id>` is new each time
    (letters, digits, dashes, for example `2026-11-27-check-my-trend`):
 
