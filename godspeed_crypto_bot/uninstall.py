@@ -11,10 +11,11 @@ from __future__ import annotations
 
 import dataclasses
 import glob
+import json
 import shutil
 from pathlib import Path
 
-from . import config, godspeed
+from . import chat_door, config, godspeed
 from .names import CODE_DIR, CONFIG_DIR, DISPLAY_NAME, NAME, PAGE_DIR, STATE_DIR
 
 UNIT_KINDS = ("daily", "guard", "deadline", "report", "terms", "relay")
@@ -70,14 +71,49 @@ def check(cfg, yes=False, market=None):
     return held
 
 
-def remove_recipe(cfg):
-    """The recipe the installer put where Godspeed's assistant reads recipes (only a folder it marked)."""
+def docker_assistant_root(cfg, gs, run=godspeed.sh, root="/"):
+    """Where the assistant's folder is on the one-line Docker server: asked of the container, or, when Godspeed is not
+    running, where the relay last found it."""
+    try:
+        found = godspeed.assistant_root(gs, run)
+    except Exception:  # noqa: BLE001 - the remembered place below is tried instead
+        found = None
+    if found:
+        return found
+    try:
+        doc = json.loads((Path(root) / str(cfg.relay_path).lstrip("/") / godspeed.CHAT_ROOT_FILE).read_text(
+            encoding="utf-8"))
+        return Path(doc["base"]), [str(p) for p in doc["parts"]]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def remove_recipe(cfg, gs=None, run=godspeed.sh, root="/"):
+    """The recipe the installer put where Godspeed's assistant reads recipes (only a folder it marked): in the Godspeed
+    folder on a native install, in the assistant's folder inside the container's volume on the one-line Docker server.
+    The person's crypto-bot folder with their strategy files stays."""
     if not cfg.godspeed_dir:
         return
     for room in ("skills", ".claude/skills"):
         recipe = Path(cfg.godspeed_dir) / room / "crypto-bot"
         if (recipe / f".installed-by-{NAME}").is_file():
             shutil.rmtree(recipe, ignore_errors=True)
+    found = docker_assistant_root(cfg, gs, run, root) if gs is not None and gs.docker else None
+    if not found:
+        return
+    base, parts = found
+    for room in (["skills"], [".claude", "skills"]):
+        try:  # walked as the installer walked it: never through a link, only folders of the folder's owner
+            d = chat_door.open_chain(base, [*parts, *room])
+        except (OSError, chat_door.Refused):
+            continue
+        try:
+            if d.exists(chat_door.RECIPE):
+                d.remove_marked(chat_door.RECIPE, chat_door.RECIPE_MARKER)
+        except (OSError, chat_door.Refused):
+            pass
+        finally:
+            d.close()
 
 
 def unit_files(root="/"):
@@ -108,7 +144,7 @@ def uninstall(cfg, purge=False, yes=False, run=godspeed.sh, root="/", market=Non
         f.unlink(missing_ok=True)
     run(["systemctl", "daemon-reload"])
     run(["systemctl", "reset-failed"])
-    remove_recipe(cfg)
+    remove_recipe(cfg, gs, run, root)
     godspeed.remove_page(gs, run, root)  # the page's address in Godspeed's Caddy, or the add-on's own container
     at(WRAPPER).unlink(missing_ok=True)
     # Godspeed's door lets an add-on make and move its reminder, not close it: the owner closes it there.

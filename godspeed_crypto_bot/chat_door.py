@@ -157,7 +157,20 @@ class SafeDir:
             return False
 
     def sub(self, name, create=False) -> SafeDir:
-        """A folder inside, owned by the same user, never through a link; made (as that user) when ``create``."""
+        """A folder inside, owned by the same user, never through a link; made (as that user) when ``create``.
+        ``create="new"`` makes a new one or raises FileExistsError: it is made by this process, opened, checked to be
+        the one it made, and only then given to the folder's owner, so a folder swapped in meanwhile is refused."""
+        if create == "new":
+            if self.fd is None:
+                (self.path / self._name(name)).mkdir(mode=0o775)
+                return SafeDir(self.path / name, None, self.uid, self.gid)
+            os.mkdir(self._name(name), 0o775, dir_fd=self.fd)
+            fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=self.fd)
+            if os.fstat(fd).st_uid != os.geteuid():
+                os.close(fd)
+                raise Refused(f"{self.path / name} was replaced while it was made.")
+            os.fchown(fd, self.uid, self.gid)
+            return SafeDir(self.path / name, fd, self.uid, self.gid)
         try:
             st = self._lstat(name)
         except FileNotFoundError:
@@ -231,6 +244,38 @@ class SafeDir:
             shutil.rmtree(self._name(name), dir_fd=self.fd)
         else:
             shutil.rmtree(self.path / self._name(name))
+
+    def remove_marked(self, name, marker) -> bool:
+        """Remove the folder ``name`` only when it holds ``marker``. The marker is looked for, and the folder emptied,
+        through the one folder opened here, so a folder its owner swaps in meanwhile is never emptied; the name is
+        then removed only if it is an empty folder."""
+        d = self.sub(name)
+        try:
+            if not d.exists(marker):
+                return False
+            for entry in d.names():
+                st = d._lstat(entry)
+                if stat.S_ISDIR(st.st_mode) and not stat.S_ISLNK(st.st_mode):
+                    d.remove_tree(entry)  # rmtree below an opened folder never follows a link
+                elif d.fd is not None:
+                    os.unlink(entry, dir_fd=d.fd)
+                else:
+                    os.unlink(d.path / entry)
+            # The name goes only while it is still the folder emptied here (the same inode, held open). What could
+            # still slip in between the look and the removal is an empty folder of the owner's own, in the owner's own
+            # folder: nothing the owner could not remove themselves.
+            try:
+                if d.fd is not None:
+                    mine, there = os.fstat(d.fd), self._lstat(name)
+                    if (there.st_dev, there.st_ino) == (mine.st_dev, mine.st_ino):
+                        os.rmdir(self._name(name), dir_fd=self.fd)
+                else:
+                    os.rmdir(self.path / self._name(name))
+            except OSError:
+                pass  # something else is at that name now, and it stays
+        finally:
+            d.close()
+        return True
 
 
 def open_chain(base, parts) -> SafeDir:
@@ -548,12 +593,18 @@ def setup(root, code_dir, version, old_places=()):
             room = room.sub(part, create=True)
             opened.append(room)
         try:
-            if room.exists(RECIPE) and not _marked(room, RECIPE):
-                said.append(f"Left alone: {room.path / RECIPE} holds a recipe you wrote with the same name.")
+            left_alone = f"Left alone: {room.path / RECIPE} holds a recipe you wrote with the same name."
+            # An older recipe of this add-on is replaced; anything else at that name, also one swapped in meanwhile, is
+            # theirs and stays: the marker is judged on the folder that is emptied, and the new folder must be new.
+            dst = None
+            try:
+                if not room.exists(RECIPE) or (_marked(room, RECIPE) and room.remove_marked(RECIPE, RECIPE_MARKER)):
+                    dst = room.sub(RECIPE, create="new")
+            except (OSError, Refused):
+                dst = None
+            if dst is None:
+                said.append(left_alone)
             else:
-                if room.exists(RECIPE):
-                    room.remove_tree(RECIPE)
-                dst = room.sub(RECIPE, create=True)
                 try:
                     src = Path(code_dir) / "skill" / RECIPE
                     for f in sorted(src.iterdir()):
