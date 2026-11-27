@@ -155,6 +155,8 @@ def weights_for(text, h=None, books=None):
 @pytest.mark.parametrize("signal,expected", [
     ('kind = "momentum"\nlookbacks = [5, 10]', {"BTC": 1 / 3, "ETH": -1 / 3}),  # SOL is flat: no vote
     ('kind = "moving-average-cross"\nfast = 5\nslow = 20', {"BTC": 1 / 3, "ETH": -1 / 3}),
+    # fast = 1 is the closing price itself against its average; SOL's flat price equals its average: no bet
+    ('kind = "moving-average-cross"\nfast = 1\nslow = 20', {"BTC": 1 / 3, "ETH": -1 / 3}),
     # BTC rose every day: 100 on the scale, above 70, a bet on a fall back; ETH fell every day: 0, a rise back.
     ('kind = "mean-reversion"\ndays = 14\nbuy_below = 30\nsell_above = 70', {"BTC": -1 / 3, "ETH": 1 / 3}),
     # BTC longs paid: bet on falling; ETH shorts paid: bet on rising; SOL paid nothing.
@@ -372,7 +374,11 @@ REFUSALS = [
     (BASE.replace('kind = "momentum"\nlookbacks = [20, 60]', 'kind = "moving-average-cross"\nfast = 50\nslow = 20'),
      "signal.slow (20) must be longer than signal.fast (50)."),
     (BASE.replace('kind = "momentum"\nlookbacks = [20, 60]', 'kind = "moving-average-cross"\nfast = 2.5\nslow = 20'),
-     "signal.fast must be a whole number of days from 2 to 365."),
+     "signal.fast must be a whole number of days from 1 to 365 (1 is the closing price itself)."),
+    (BASE.replace('kind = "momentum"\nlookbacks = [20, 60]', 'kind = "moving-average-cross"\nfast = 0\nslow = 20'),
+     "signal.fast must be a whole number of days from 1 to 365 (1 is the closing price itself)."),
+    (BASE.replace('kind = "momentum"\nlookbacks = [20, 60]', 'kind = "moving-average-cross"\nfast = 1\nslow = 1'),
+     "signal.slow must be a whole number of days from 2 to 365."),
     (BASE.replace('kind = "momentum"\nlookbacks = [20, 60]',
                   'kind = "mean-reversion"\ndays = 14\nbuy_below = 60\nsell_above = 40'),
      "signal.sell_above (40) must be above signal.buy_below (60)."),
@@ -509,6 +515,31 @@ def test_every_kind_has_plain_words_without_forecasts(signal):
     text = explain(spec_of(file_with(signal, direction="long-only")))
     assert "It only bets on rises" in text and "\u2014" not in text
     assert not re.search(r"\b(profit|return|gain|earn|guarantee|forecast|safe)\w*", text, re.I), text
+
+
+def test_the_price_against_its_own_average():
+    """fast = 1 is the closing price itself, so "hold it while the price is above its 100-day average" can be written
+    as it is meant, not only as a 2-day average against the 100-day one."""
+    n = 150
+    dates = np.arange(np.datetime64("2026-01-01", "D"), np.datetime64("2026-01-01", "D") + np.timedelta64(n, "D"))
+    # flat at 100, then one day well above (130) and yesterday's close just below the 100-day average (99 < 100.29)
+    close = np.full((n, 1), 100.0)
+    close[-2, 0], close[-1, 0] = 130.0, 99.0
+    open_ = np.vstack([close[:1], close[:-1]])
+    t = np.ones_like(close, dtype=bool)
+    h = History(dates, ("BTC",), open_, np.maximum(open_, close), np.minimum(open_, close), close, t,
+                open_, np.maximum(open_, close), np.minimum(open_, close), close, t, np.zeros_like(close),
+                [np.datetime64("2020-01-01")], [True])
+    price, _ = weights_for(file_with('kind = "moving-average-cross"\nfast = 1\nslow = 100', coins='["BTC"]'), h=h)
+    two_day, _ = weights_for(file_with('kind = "moving-average-cross"\nfast = 2\nslow = 100', coins='["BTC"]'), h=h)
+    assert price.trend_weights == pytest.approx({"BTC": -1.0})  # the price is below its average
+    assert two_day.trend_weights == pytest.approx({"BTC": 1.0})  # the 2-day average (114.5) is above it
+    spec = spec_of(file_with('kind = "moving-average-cross"\nfast = 1\nslow = 100', coins='["BTC", "ETH"]',
+                             direction="long-only", rebalance="weekly"))
+    assert explain(spec).startswith("Every Monday, it compares the price of BTC and ETH (the day's closing price) "
+                                    "with its average over the last 100 days: the price above that average counts "
+                                    "as rising, below it as falling.")
+    assert summary(spec) == "compares the price with its 100 day average on BTC and ETH, every Monday"
 
 
 def test_the_fingerprint_names_the_file():

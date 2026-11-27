@@ -59,8 +59,9 @@ up to yesterday's close. Choose one with `kind`:
 - `kind = "momentum"`, `lookbacks = [20, 60, 120]`: for each number of days (1 to 5 of them, each from 2 to 365), a
   rise over that many days counts as a vote for rising and a fall as a vote for falling; the votes are averaged.
 - `kind = "moving-average-cross"`, `fast = 20`, `slow = 100`: the average closing price over the last `fast` days
-  against the average over the last `slow` days (2 to 365 days, `slow` longer than `fast`). The shorter average above
-  the longer one counts as rising (1), below it as falling (-1).
+  against the average over the last `slow` days (`fast` 1 to 365 days, `slow` 2 to 365 and longer than `fast`). The
+  shorter average above the longer one counts as rising (1), below it as falling (-1). With `fast = 1` the shorter
+  one is the closing price itself: `fast = 1`, `slow = 100` is the price above or below its 100-day average.
 - `kind = "mean-reversion"`, `days = 14`, `buy_below = 30`, `sell_above = 70`: how much of the coin's daily moves over
   the last `days` days (2 to 100) were rises, on a scale from 0 to 100. Below `buy_below` it bets on a rise back (1),
   above `sell_above` on a fall back (-1), in between it holds nothing in that coin (0).

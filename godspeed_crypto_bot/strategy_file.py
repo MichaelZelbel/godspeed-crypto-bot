@@ -411,12 +411,13 @@ def _check_signal(raw, where, coins, say, top=False):
         else:
             s["lookbacks"] = tuple(lb)
     elif kind == "moving-average-cross":
+        # fast = 1 is the day's closing price itself: "the price above its 100-day average" is fast = 1, slow = 100.
         fast, slow = raw.get("fast"), raw.get("slow")
-        if "fast" in raw and not _int_in(fast, 2, MAX_DAYS):
-            bad(f"{where}.fast must be a whole number of days from 2 to {MAX_DAYS}.")
+        if "fast" in raw and not _int_in(fast, 1, MAX_DAYS):
+            bad(f"{where}.fast must be a whole number of days from 1 to {MAX_DAYS} (1 is the closing price itself).")
         if "slow" in raw and not _int_in(slow, 2, MAX_DAYS):
             bad(f"{where}.slow must be a whole number of days from 2 to {MAX_DAYS}.")
-        elif _int_in(fast, 2, MAX_DAYS) and _int_in(slow, 2, MAX_DAYS) and slow <= fast:
+        elif _int_in(fast, 1, MAX_DAYS) and _int_in(slow, 2, MAX_DAYS) and slow <= fast:
             bad(f"{where}.slow ({slow}) must be longer than {where}.fast ({fast}).")
         s.update(fast=fast, slow=slow)
     elif kind == "mean-reversion":
@@ -567,6 +568,9 @@ def _signal_sentence(s, coins_words, nested=False):
                     "that move")
         return (f"it looks at how {coins_words} moved over the last {_days(s.lookbacks)}; for each coin a rise over "
                 "a period counts as a vote for rising and a fall as a vote for falling, and the votes are averaged")
+    if s.kind == "moving-average-cross" and s.fast == 1:
+        return (f"it compares the price of {coins_words} (the day's closing price) with its average over the last "
+                f"{s.slow} days: the price above that average counts as rising, below it as falling")
     if s.kind == "moving-average-cross":
         return (f"it compares the average price of {coins_words} over the last {s.fast} days with the average over the "
                 f"last {s.slow} days: the shorter average above the longer one counts as rising, below it as falling")
@@ -635,7 +639,8 @@ def summary(spec: Spec) -> str:
     s = spec.signal
     what = {
         "momentum": lambda: f"follows the moves over {_days(s.lookbacks)}",
-        "moving-average-cross": lambda: f"compares the {s.fast} and {s.slow} day average prices",
+        "moving-average-cross": lambda: (f"compares the price with its {s.slow} day average" if s.fast == 1
+                                         else f"compares the {s.fast} and {s.slow} day average prices"),
         "mean-reversion": lambda: f"bets against stretched moves over {s.days} days",
         "funding": lambda: f"takes the side that receives funding over {s.days} day{'s' if s.days != 1 else ''}",
         "fixed": lambda: "holds fixed shares",

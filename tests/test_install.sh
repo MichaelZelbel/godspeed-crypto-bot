@@ -130,6 +130,7 @@ printf '%s\n' "$out" | tail -n 6
 [ "$code" -eq 0 ] && pass "install finished" || fail "install failed (exit $code)"
 check "the installer printed sentences only, no data block" bash -c '! printf "%s" "$1" | grep -q "[{}]"' _ "$out"
 check "the data it left out is in the install log" grep -q '"ready": true' "$ETC/install.log"
+check "the installer left no download folder behind" bash -c "! ls -d ${TMPDIR:-/tmp}/$NAME-* >/dev/null 2>&1"
 check "program, user and command are there" test -x "$CODE/.venv/bin/python" -a -x "/usr/local/sbin/$NAME"
 id "$NAME" >/dev/null 2>&1 && pass "system user exists" || fail "system user missing"
 for k in daily guard deadline report terms relay; do
@@ -169,6 +170,7 @@ check "records kept" test -s "$STATE/bot.sqlite"
 check "HALT kept" test -f "$STATE/HALT"
 check "the update says it is an update, and that trading is on hold" bash -c 'printf "%s" "$1" | grep -q "is updated and runs in paper mode" && printf "%s" "$1" | grep -q "Trading is on hold"' _ "$out"
 check "key kept" test "$(sha256sum /etc/credstore.encrypted/$NAME.agent-key.mainnet | cut -d' ' -f1)" = "$key_before"
+check "the update left no download folder behind either" bash -c "! ls -d ${TMPDIR:-/tmp}/$NAME-* >/dev/null 2>&1"
 check "page kept" test "$(cat "$PAGE/extra.html")" = "my page"
 check "state still belongs to the bot's user" test "$(stat -c %U "$STATE/keepme")" = "$NAME"
 for k in daily guard relay; do check "timer $k is active after the update" systemctl is-active --quiet "$NAME-$k.timer"; done
