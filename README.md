@@ -91,8 +91,9 @@ Hyperliquid's past prices (it explains the worst day, week and month and the dee
 you say yes, to run it on paper. The bot's relay answers each request within a minute (a first test can take a few
 minutes while it fetches prices), beside the request. Nothing in that folder is ever run as a program, and only paper
 actions go through it: real money, the cap, your account and the key are not reachable from the chat. Requests and
-answers stay on the server; your strategy files are yours and may be carried with the rest of your mission control
-folder.
+answers stay on the server (the folder's `.gitignore` keeps them out of git). Godspeed's own sync carries only its own
+folders, so your strategy files stay on the server too, beside the bot's checked copy in
+`/etc/godspeed-crypto-bot/strategies/`.
 
 **In a terminal on the server.** `godspeed-crypto-bot strategy check <file>` says what the bot understood or every
 problem; put the file in `/etc/godspeed-crypto-bot/strategies/<name>.toml`; `godspeed-crypto-bot backtest
