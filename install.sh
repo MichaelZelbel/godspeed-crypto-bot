@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Crypto Bot, an add-on for Godspeed Mission Control: the installer for a Linux server with systemd.
 #
-#   curl -fsSL https://raw.githubusercontent.com/MichaelZelbel/godspeed-crypto-bot/v0.1.1/install.sh | bash -s -- --godspeed <your Godspeed Mission Control folder>
+#   curl -fsSL https://raw.githubusercontent.com/MichaelZelbel/godspeed-crypto-bot/v0.2.0/install.sh | bash -s -- --godspeed <your Godspeed Mission Control folder>
 #
 # Run it as root. It installs the program, a system user, the timers and a configuration that starts in PAPER
 # mode (simulated fills on the live order book, nothing signed, 2,000 USDC pretend money), then checks itself
@@ -27,7 +27,7 @@ main() {
   local NAME="godspeed-crypto-bot"
   local DISPLAY="Crypto Bot"
   local REPO="MichaelZelbel/godspeed-crypto-bot"
-  local TAG="v0.1.1"                       # the release this install.sh belongs to: the install line names it
+  local TAG="v0.2.0"                       # the release this install.sh belongs to: the install line names it
   local MINIMUM_GODSPEED="2.0.0-beta.6"    # the oldest Godspeed with the add-on deadline door on both server installs
   local CODE="/opt/$NAME" STATE="/var/lib/$NAME" ETC="/etc/$NAME"
   local PAGE="/var/lib/$NAME-page" RELAY="/var/lib/$NAME-relay"
