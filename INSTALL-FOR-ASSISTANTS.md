@@ -37,7 +37,7 @@ around it. Otherwise go on. The installer records the answer with its date and d
 As root, with the Godspeed folder and the person's answer:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MichaelZelbel/godspeed-crypto-bot/v0.2.0/install.sh | bash -s -- --godspeed <their Godspeed Mission Control folder> --restricted no
+curl -fsSL https://raw.githubusercontent.com/MichaelZelbel/godspeed-crypto-bot/v0.2.1/install.sh | bash -s -- --godspeed <their Godspeed Mission Control folder> --restricted no
 ```
 
 It starts in **paper** mode: simulated fills on the live order book, nothing signed, 2,000 USDC of pretend

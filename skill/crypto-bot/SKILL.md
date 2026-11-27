@@ -32,6 +32,10 @@ Full set-up steps, in order, are in `INSTALL-FOR-ASSISTANTS.md` in the add-on's 
 This works the same whether or not you can run commands on the server: you only write files in the mission control
 folder, in its `crypto-bot` folder, and the bot answers within a minute.
 
+**Everything they need goes in your last message.** Godspeed's chat may show them only your final message of a turn,
+so what the bot understood (step 4), what the menu cannot run (step 2) and the test's worst stretches (step 5) belong
+in that final answer, never only in messages along the way.
+
 **If they have no strategy yet** and ask you to help them find one, interview them and research as they ask, but keep
 to what the menu in `strategy-files.md` can run, and say so: a trend over chosen days, the price against its average
 or two averages crossing (plain averages of daily closing prices, not exponential ones), a coin that fell or rose too
@@ -52,7 +56,13 @@ hand. Then go on with step 1 for the approach they choose.
    other exchanges, news or other data, and any indicator not in the menu are not there. Say so in one sentence
    each, and offer the closest thing the menu has only if they want it. Never guess a setting.
 3. **Write the file** `crypto-bot/strategies/<name>.toml` from the menu, `name` the same as the file's name (lowercase
-   letters, digits, dashes). Show it to them.
+   letters, digits, dashes). Show it to them. **Money:** write the limits they gave you (step 1), as they gave them:
+   "at most a quarter in one coin" is `max_per_coin = 0.25`. What they did not limit, leave out (`gross_exposure`
+   and `max_per_coin` are then 1: it aims to bet at most the money itself, and between rebalances moving prices
+   can take it a little above that before the bot sets it back). Never copy a number from an example.
+   `gross_exposure` above 1 bets borrowed money: write it only if they asked for more than their money in those
+   words, after you have said so in one sentence and they said yes. If they did not say how much may go on one coin,
+   say what the file allows.
 4. **Ask the bot to check it**: write a new file `crypto-bot/requests/<id>.json`, where `<id>` is new each time
    (letters, digits, dashes, for example `2026-11-27-check-my-trend`):
 
@@ -67,8 +77,9 @@ hand. Then go on with step 1 for the approach they choose.
    bot fetches its prices first; the answer appears when it is done. The report's first line says it is the past, not
    a forecast: say that too. Then tell them, in plain words and with the report's own numbers and dates: the worst
    day, the worst week and the worst month, the three worst weeks, the deepest fall from a high point and how long it
-   took to get back (or that it did not), what fees and funding cost, how often it traded, and the same figures for
-   simply holding the coins. Lead with the worst stretches: they are what they would have lived through.
+   took to get back (or that it did not), what fees and funding cost, how often it traded, and, for simply holding the
+   coins, the report's result, worst day and deepest fall. Lead with the worst stretches: they are what they would
+   have lived through.
 6. **Run it on paper only after they say yes**: `{"request": "use-on-paper", "strategy": "my-trend"}`. From the next
    daily run (00:02 UTC) the bot runs it with pretend money, like a built-in. The page and `status` name it.
 7. **Real money stays theirs.** A request can never switch on real money; while the bot trades real money,

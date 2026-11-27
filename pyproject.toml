@@ -1,6 +1,6 @@
 [project]
 name = "godspeed-crypto-bot"
-version = "0.2.0"
+version = "0.2.1"
 description = "Crypto Bot, an add-on for Godspeed Mission Control: runs a trading strategy on Hyperliquid (the installer starts it in paper mode)"
 requires-python = ">=3.12"
 dependencies = [
