@@ -115,6 +115,21 @@ def test_use_on_paper_switches_the_strategy_in_paper_mode(bed):
     assert text.startswith('Done: from the next daily run (00:02 UTC) Crypto Bot runs your own strategy "momo"')
     assert doc["outcome"] == "done" and bed.cfg.strategy == "file:momo"
     assert strategy_file.load_for(bed.cfg).name == "momo"  # the bot reads it from its own folder
+    assert "on hold" not in text
+
+
+def test_use_on_paper_says_so_when_trading_is_on_hold(bed):
+    """Seen on the fresh-server walk-through: the answer said the strategy runs from the next daily run while a HALT
+    file kept the bot from trading at all."""
+    bed.strategy()
+    bed.cfg.halt_path.parent.mkdir(parents=True, exist_ok=True)
+    bed.cfg.halt_path.write_text("2026-11-27T00:00:00+00:00 by hand\n", encoding="utf-8")
+    bed.request("use", {"request": "use-on-paper", "strategy": "momo"})
+    bed.door()()
+    text, doc = bed.answer("use")
+    assert doc["outcome"] == "done" and bed.cfg.strategy == "file:momo"  # still switched, as asked
+    assert "Trading is on hold now (a HALT file is there)" in text and text.rstrip().endswith("godspeed-crypto-bot resume")
+    assert doc["said"].endswith("Trading is on hold until resume.")
 
 
 def test_every_request_and_its_outcome_is_a_row_in_the_records(bed):

@@ -388,6 +388,10 @@ class Door:
                         f'"{strategy}" (fingerprint {fingerprint}) on paper, with pretend money on real prices. '
                         f"{strategy_file.explain(spec)}\n")
                 said = f"Done: {strategy} runs on paper from the next daily run."
+                if self.halted():
+                    text += (f"\nTrading is on hold now (a HALT file is there), so {DISPLAY_NAME} trades nothing until "
+                             f"the person types on the server: {NAME} resume\n")
+                    said += " Trading is on hold until resume."
             outcome = "done"
         except Refused as exc:
             outcome, said = "refused", exc.sentences[0] if exc.sentences else "Refused."
@@ -404,6 +408,13 @@ class Door:
         self.log.append(doc)
         append_log(self.cfg, doc)
         return kind
+
+    def halted(self):
+        """Whether the bot is on hold (its HALT file), so an answer never says it runs a strategy it will not run."""
+        try:
+            return os.path.lexists(self.cfg.halt_path)
+        except OSError:
+            return False
 
     def check(self, strategies_dir, name):
         file = f"{name}.toml"
