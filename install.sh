@@ -154,9 +154,12 @@ main() {
   fi
 
   # ---- the program: a local source, or the tagged release
-  local work src
-  work="$(mktemp -d "${TMPDIR:-/tmp}/$NAME-XXXXXX")"
-  trap 'rm -rf "${work:-}"' EXIT
+  # The download folder is removed when the installer ends, however it ends. Its name is kept in a variable the EXIT
+  # trap can still read after main() has returned (a local one is gone by then, and the folder stayed behind).
+  local src
+  CRYPTO_BOT_WORK="$(mktemp -d "${TMPDIR:-/tmp}/$NAME-XXXXXX")"
+  local work="$CRYPTO_BOT_WORK"
+  trap 'rm -rf "${CRYPTO_BOT_WORK:-}"' EXIT
   if [ -n "$source" ]; then
     if [ -d "$source" ]; then src="$(cd "$source" && pwd)"
     elif [ -f "$source" ]; then tar -xzf "$source" -C "$work" || die "Could not unpack $source."; src="$(find "$work" -maxdepth 2 -name pyproject.toml -printf '%h\n' | head -n 1)"
