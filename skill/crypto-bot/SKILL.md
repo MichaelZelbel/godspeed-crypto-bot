@@ -33,10 +33,11 @@ This works the same whether or not you can run commands on the server: you only 
 folder, in its `crypto-bot` folder, and the bot answers within a minute.
 
 1. **Interview them**, one question at a time, in their words: which coins (Hyperliquid perpetuals, like BTC, ETH,
-   SOL), what makes them want to be in a coin or out of it (a trend, two moving averages crossing, a coin that fell
-   or rose too far, funding, fixed shares), whether they bet only on rises or also on falls, how often to look (every
-   day, every Monday, the first of the month), and how much of the money at most in one coin and in all. Then say
-   back in two or three plain sentences what you understood, and ask whether that is it.
+   SOL), what makes them want to be in a coin or out of it (a trend, the price above or below its average over some
+   days, two moving averages crossing, a coin that fell or rose too far, funding, fixed shares), whether they bet only
+   on rises or also on falls, how often to look (every day, every Monday, the first of the month), and how much of the
+   money at most in one coin and in all. Then say back in two or three plain sentences what you understood, and ask
+   whether that is it.
 2. **Say plainly what cannot be expressed.** Read `strategy-files.md` beside this recipe: it is the whole menu. Stop
    losses, take-profit levels, prices within the day, leverage beyond twice the money, coins themselves (spot),
    other exchanges, news or other data, and any indicator not in the menu are not there. Say so in one sentence
