@@ -7,6 +7,7 @@ set up on a native and a Docker Godspeed; and no way through a link out of the a
 import json
 import os
 import re
+import shutil
 from pathlib import Path
 
 import pytest
@@ -484,7 +485,8 @@ def test_remove_marked_removes_only_a_marked_folder(tmp_path):
 
 
 @pytest.mark.skipif(not POSIX, reason="the folder is held open by its descriptor on POSIX only")
-def test_a_folder_swapped_in_after_the_marker_was_seen_is_never_emptied(tmp_path, monkeypatch):
+@pytest.mark.parametrize("theirs", ["with a file", "empty"])
+def test_a_folder_swapped_in_after_the_marker_was_seen_is_never_emptied(tmp_path, monkeypatch, theirs):
     """Codex's finding on #15: between seeing the marker and removing the folder, its owner could rename the marked
     folder away and put an unmarked one of theirs at the same name. The emptying goes through the folder that was
     opened and checked, so theirs stays whole."""
@@ -499,7 +501,8 @@ def test_a_folder_swapped_in_after_the_marker_was_seen_is_never_emptied(tmp_path
         if name == chat_door.RECIPE_MARKER and found and not (tmp_path / "skills" / "moved").exists():
             os.rename(recipe, tmp_path / "skills" / "moved")
             recipe.mkdir()
-            (recipe / "SKILL.md").write_text("theirs")
+            if theirs == "with a file":
+                (recipe / "SKILL.md").write_text("theirs")
         return found
 
     monkeypatch.setattr(chat_door.SafeDir, "exists", swap_then_exists)
@@ -508,5 +511,30 @@ def test_a_folder_swapped_in_after_the_marker_was_seen_is_never_emptied(tmp_path
         room.remove_marked(chat_door.RECIPE, chat_door.RECIPE_MARKER)
     finally:
         room.close()
-    assert (recipe / "SKILL.md").read_text() == "theirs"  # the folder swapped in is untouched
+    assert recipe.is_dir()  # the folder swapped in stays, also an empty one
+    if theirs == "with a file":
+        assert (recipe / "SKILL.md").read_text() == "theirs"
     assert list((tmp_path / "skills" / "moved").iterdir()) == []  # the marked one was emptied through its descriptor
+
+
+def test_the_installer_leaves_a_recipe_swapped_in_after_the_marker_was_seen_alone(tmp_path, monkeypatch):
+    """Codex's round-2 finding on #15: a recipe of the person's own, put at the name after the old recipe's marker was
+    seen, must not be filled with this recipe and marked (a later uninstall would then remove it)."""
+    mc = tmp_path / "mc"
+    mc.mkdir()
+    chat_door.setup((mc, []), ROOT, "old")  # an older install's recipe, marked
+    recipe = mc / "skills" / chat_door.RECIPE
+    real_marked = chat_door._marked
+
+    def marked_then_swapped(room, name):
+        found = real_marked(room, name)
+        shutil.move(str(recipe), str(mc / "skills" / "old-one"))
+        recipe.mkdir()
+        (recipe / "SKILL.md").write_text("# my own recipe")
+        return found
+
+    monkeypatch.setattr(chat_door, "_marked", marked_then_swapped)
+    said = chat_door.setup((mc, []), ROOT, "new")
+    assert any(s.startswith("Left alone:") for s in said), said
+    assert (recipe / "SKILL.md").read_text() == "# my own recipe"
+    assert not (recipe / chat_door.RECIPE_MARKER).exists()
